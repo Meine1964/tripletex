@@ -177,6 +177,10 @@ Step 1: Find the employee.
   GET /employee?fields=* — the employee usually already exists in the sandbox. Update their name if needed.
   If not found, create with POST /employee (firstName, lastName, email).
   IMPORTANT: If POST /employee fails with "Brukertype" error, GET the existing employee and PUT to update name.
+  IMPORTANT: Employee MUST have an employment record. If you see "ikke registrert med et arbeidsforhold i perioden":
+    a. First ensure employee has dateOfBirth set (PUT /employee/{id} with dateOfBirth if missing)
+    b. Then POST /employee/employment with body: {"employee": {"id": EMPLOYEE_ID}, "startDate": "YYYY-MM-01"}
+       Use the 1st of the current month as startDate. Do NOT include "department" field.
 
 Step 2: Look up salary types.
   GET /salary/type — returns available salary types. Key types:
@@ -184,32 +188,26 @@ Step 2: Look up salary types.
   - number "2002" = "Bonus"
   Note the "id" of each needed type (IDs vary per sandbox).
 
-Step 3: Create the salary transaction (2-step approach — MORE RELIABLE):
-  a. POST /salary/transaction with body:
-     {"year": {today_year}, "month": CURRENT_MONTH_NUMBER, "payslips": [{"employee": {"id": EMPLOYEE_ID}}]}
-     This creates a payslip. Get the payslip id from response: value.payslips[0].id
-  b. POST /salary/specification for EACH salary line:
-     {"payslip": {"id": PAYSLIP_ID}, "salaryType": {"id": TYPE_ID}, "rate": AMOUNT, "count": 1}
+Step 3: Create the salary transaction WITH INLINE SPECIFICATIONS in ONE call:
+  POST /salary/transaction with body:
+  {{
+    "year": {today_year},
+    "month": CURRENT_MONTH_NUMBER,
+    "payslips": [{{
+      "employee": {{"id": EMPLOYEE_ID}},
+      "specifications": [
+        {{"salaryType": {{"id": FASTLONN_TYPE_ID}}, "rate": BASE_SALARY_AMOUNT, "count": 1}},
+        {{"salaryType": {{"id": BONUS_TYPE_ID}}, "rate": BONUS_AMOUNT, "count": 1}}
+      ]
+    }}]
+  }}
   - "month" is the current month (1-12) from today's date.
   - "rate" is the salary amount (e.g. 33900 for base salary).
   - "count" is always 1 for monthly salary/bonus.
-  - Create one specification for base salary, one for bonus (if applicable).
+  - Include ALL salary lines (base salary + bonus) as specifications in ONE request.
+  - DO NOT use POST /salary/specification — that endpoint does not exist!
 
-Step 4: If the 2-step approach fails, try inline specifications:
-  POST /salary/transaction with body:
-  {
-    "year": {today_year},
-    "month": CURRENT_MONTH_NUMBER,
-    "payslips": [{
-      "employee": {"id": EMPLOYEE_ID},
-      "specifications": [
-        {"salaryType": {"id": FASTLONN_TYPE_ID}, "rate": BASE_SALARY_AMOUNT, "count": 1},
-        {"salaryType": {"id": BONUS_TYPE_ID}, "rate": BONUS_AMOUNT, "count": 1}
-      ]
-    }]
-  }
-
-Step 5: Call done() when complete.
+Step 4: Call done() when complete.
 
 IMPORTANT: "month" in the salary transaction = the NUMERIC month from today's date ({today}).
 For base salary, use salary type with number "2000" (Fastlønn).
@@ -867,6 +865,19 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "content": json.dumps({"error": err_msg, "_status_code": 400}),
+                    })
+                    continue
+                # Auto-fix: block POST /salary/specification — endpoint doesn't exist
+                if args["method"] == "POST" and args["path"].rstrip("/") == "/salary/specification":
+                    err_msg = ("ERROR: POST /salary/specification does NOT exist! "
+                               "Include specifications INLINE in POST /salary/transaction body: "
+                               '{"year":Y,"month":M,"payslips":[{"employee":{"id":EID},'
+                               '"specifications":[{"salaryType":{"id":TID},"rate":AMT,"count":1}]}]}')
+                    print(f"    │  [fix] blocked POST /salary/specification — endpoint doesn't exist", flush=True)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps({"error": err_msg, "_status_code": 404}),
                     })
                     continue
                 # Auto-fix: ensure isCustomer:true on POST /customer
