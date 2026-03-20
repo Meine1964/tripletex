@@ -1,0 +1,24 @@
+{
+  "prompt": "Defina um preço fixo de 240750 NOK no projeto \"Desenvolvimento e-commerce\" para Cascata Lda (org. nº 908648579). O gestor de projeto é João Almeida (joao.almeida@example.org). Fature ao cliente 33 % do preço fixo como pagamento por etapa.",
+  "files": [],
+  "source": "competition_attempt15",
+  "task_type": "fixedprice_milestone",
+  "notes": "From Attempt 15. Portuguese. Score 2/8 (25%), check 1 passed (project with fixed price created), checks 2-4 failed. Root cause: agent did NOT create employee João Almeida — used existing admin employee (id=18185095) as project manager without updating name. Fixed: employee workflow now tries POST /employee first, falls back to PUT to update existing employee name. Also: product vatType 422 errors wasted iterations.",
+  "expected_steps": [
+    "POST /customer (Cascata Lda, org 908648579)",
+    "POST /employee (João Almeida, joao.almeida@example.org) OR PUT /employee/{id} to update name",
+    "POST /project (name=Desenvolvimento e-commerce, fixedprice=240750, isFixedPrice=true, PM=employee_id, customer=customer_id)",
+    "GET /ledger/vatType (find 25% outgoing)",
+    "POST /product (milestone payment, price=240750*0.33=79447.50, vatType)",
+    "POST /order (customer, project)",
+    "POST /order/orderline (order, product, count=1)",
+    "POST /invoice",
+    "PUT /invoice/{id}/:send (if task says send)"
+  ],
+  "expected_amounts": {
+    "fixedprice": 240750,
+    "milestone_percentage": 33,
+    "milestone_excl_vat": 79447.50,
+    "milestone_incl_vat": 99309.375
+  }
+}
