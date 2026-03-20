@@ -97,7 +97,8 @@ KEY ENDPOINTS:
 - PUT /company — update company (no ID in path!). Include id + version in body. NOTE: bankAccountNumber is NOT on company — use PUT /ledger/account/{id} instead!
 - GET /ledger/account?isBankAccount=true — find bank accounts. PUT /ledger/account/{id} to set bankAccountNumber.
 - GET/POST /deliveryAddress — delivery addresses
-- POST /incomingInvoice — [BETA] register a supplier/incoming invoice (voucherDate, supplier, invoiceNumber, amount, postings)
+- POST /incomingInvoice — [BETA] register a supplier/incoming invoice. Params: sendTo=ledger. Body: {invoiceHeader:{vendorId, invoiceDate, dueDate, invoiceAmount, invoiceNumber, description}, orderLines:[{externalId, row, accountId, amountInclVat, vatTypeId, description}]}
+- POST /supplierInvoice — create supplier invoice with voucher postings: {invoiceNumber, invoiceDate, invoiceDueDate, supplier:{id}, voucher:{date, description, postings:[{row, date, amountGross, amountGrossCurrency, account:{id}, vatType:{id}}]}}
 - GET/POST /ledger/voucher — journal entries with postings. POST requires JSON BODY (not params!): {date, description, postings:[...]}
 - POST /ledger/accountingDimensionName — create a free/user-defined accounting dimension. Field: {\"dimensionName\": \"DIM_NAME\"} (NOT \"name\"!)
 - POST /ledger/accountingDimensionValue — create a value. Body: {\"displayName\": \"VALUE\"}, pass ?dimensionNameId=ID as query param
@@ -318,10 +319,12 @@ Step 1: Create the supplier.
   POST /supplier with: name, organizationNumber (if given), email (if given), phoneNumber (if given)
   NOTE: Use /supplier NOT /customer! Suppliers are separate entities.
 
-Step 2: Look up VAT types.
+Step 2: Look up VAT types and accounts.
   GET /ledger/vatType — find the INCOMING/INPUT VAT type for the given percentage.
-  For 25% input VAT: look for name containing "Inngående" (incoming) with percentage=25.
+  For 25% input VAT: look for name containing "Inngående" or "Fradrag inngående" with percentage=25.
   Note the "id" — do NOT use the "number" field.
+  GET /ledger/account — look up the expense account ID (e.g. account 6590) by using ?number=6590.
+  ALWAYS look up account IDs first. Use {"id": X} not {"number": X}.
 
 Step 3: Calculate amounts.
   If the task says "65850 NOK including VAT" with 25% VAT:
@@ -329,36 +332,74 @@ Step 3: Calculate amounts.
   - VAT amount = 65850 / 1.25 * 0.25 = 13170
   - Amount excl. VAT = 65850 - 13170 = 52680
 
-Step 4: Create a ledger voucher to register the supplier invoice.
-  First: GET /ledger/account to look up the account IDs for the account numbers you need.
-  POST /ledger/voucher with JSON BODY (NOT params!):
+Step 4: Register the supplier invoice. Try POST /incomingInvoice first (BETA endpoint).
+  POST /incomingInvoice with params: sendTo=ledger
+  Body (use "body" field, NOT "params"):
+  {
+    "invoiceHeader": {
+      "vendorId": SUPPLIER_ID,
+      "invoiceDate": "{today}",
+      "dueDate": "DUE_DATE",
+      "invoiceAmount": TOTAL_INCL_VAT,
+      "invoiceNumber": "INVOICE_NUMBER",
+      "description": "Supplier invoice INVOICE_NUMBER from SUPPLIER_NAME"
+    },
+    "orderLines": [
+      {
+        "externalId": "line-1",
+        "row": 1,
+        "description": "EXPENSE_DESCRIPTION",
+        "accountId": EXPENSE_ACCOUNT_ID,
+        "amountInclVat": TOTAL_INCL_VAT,
+        "vatTypeId": VAT_TYPE_ID
+      }
+    ]
+  }
+  NOTE: For the dueDate, use 30 days after invoiceDate if not specified.
+  NOTE: amountInclVat on the order line = the TOTAL including VAT for that line.
+  NOTE: The sendTo=ledger param goes in "params", the body in "body".
+
+Step 5: If POST /incomingInvoice returns 403 (no permission), fall back to POST /supplierInvoice.
+  First: GET /ledger/account to look up these accounts:
+  - The expense account (e.g. 6590)
+  - Account 2400 (Leverandørgjeld / AP)
+  POST /supplierInvoice with JSON BODY:
+  {
+    "invoiceNumber": "INVOICE_NUMBER",
+    "invoiceDate": "{today}",
+    "invoiceDueDate": "DUE_DATE",
+    "supplier": {"id": SUPPLIER_ID},
+    "voucher": {
+      "date": "{today}",
+      "description": "Supplier invoice INVOICE_NUMBER from SUPPLIER_NAME",
+      "postings": [
+        {"row": 1, "date": "{today}", "amountGross": TOTAL_INCL_VAT, "amountGrossCurrency": TOTAL_INCL_VAT, "account": {"id": EXPENSE_ACCOUNT_ID}, "vatType": {"id": VAT_TYPE_ID}},
+        {"row": 2, "date": "{today}", "amountGross": -TOTAL_INCL_VAT, "amountGrossCurrency": -TOTAL_INCL_VAT, "account": {"id": ACCOUNT_2400_ID}, "supplier": {"id": SUPPLIER_ID}}
+      ]
+    }
+  }
+  CRITICAL POSTING RULES for supplierInvoice:
+  - Use "amountGross" and "amountGrossCurrency" (NOT "amount"/"amountCurrency") for supplier invoice voucher postings.
+  - Each posting MUST have "row" field: 1, 2... (starting from 1, NOT 0!)
+  - Each posting MUST have "date" field
+  - Debit row: positive amountGross (expense). Credit row: negative amountGross (payable 2400).
+  - MUST include both debit AND credit postings, otherwise error "credit posting missing".
+  - Credit posting on account 2400 MUST include "supplier": {"id": SUPPLIER_ID}.
+  - The debit posting should include "vatType": {"id": VAT_TYPE_ID} for the VAT to be calculated.
+
+Step 6: If BOTH fail, try POST /ledger/voucher as last resort (creates journal entry but NOT a supplier invoice entity):
+  POST /ledger/voucher with JSON BODY:
   {
     "date": "{today}",
     "description": "Supplier invoice INVOICE_NUMBER from SUPPLIER_NAME",
     "postings": [
       {"row": 1, "date": "{today}", "amount": AMOUNT_EXCL_VAT, "amountCurrency": AMOUNT_EXCL_VAT, "account": {"id": EXPENSE_ACCOUNT_ID}},
       {"row": 2, "date": "{today}", "amount": VAT_AMOUNT, "amountCurrency": VAT_AMOUNT, "account": {"id": VAT_ACCOUNT_ID_2710}},
-      {"row": 3, "date": "{today}", "amount": -TOTAL_INCL_VAT, "amountCurrency": -TOTAL_INCL_VAT, "account": {"id": SUPPLIER_ACCOUNT_ID_2400}}
+      {"row": 3, "date": "{today}", "amount": -TOTAL_INCL_VAT, "amountCurrency": -TOTAL_INCL_VAT, "account": {"id": SUPPLIER_ACCOUNT_ID_2400}, "supplier": {"id": SUPPLIER_ID}}
     ]
   }
-  CRITICAL POSTING RULES:
-  - Each posting MUST have "row" field: 1, 2, 3... (starting from 1, NOT 0! Row 0 is reserved for system-generated entries)
-  - Each posting MUST have "date" field
-  - Debit = positive, Credit = negative. Postings MUST sum to zero.
-  - ALWAYS look up account IDs with GET /ledger/account first. Use {"id": X} not {"number": X}.
 
-Step 5: If POST /ledger/voucher fails, try POST /incomingInvoice [BETA endpoint]:
-  POST /incomingInvoice with body:
-  {
-    "voucherDate": "{today}",
-    "supplier": {"id": SUPPLIER_ID},
-    "invoiceNumber": "INVOICE_NUMBER",
-    "amount": TOTAL_INCL_VAT,
-    "amountCurrency": TOTAL_INCL_VAT
-  }
-  If that also fails, try different field combinations based on error messages.
-
-IMPORTANT: POST /ledger/voucher uses JSON BODY, not query params! Use the "body" field.
+IMPORTANT: All POST endpoints above use JSON BODY, not query params! Use the "body" field.
 "Register supplier invoice" / "Eingangsrechnung" / "facture reçue" = incoming invoice, NOT outgoing.
 
 LEDGER VOUCHER / JOURNAL ENTRY WORKFLOW (for "voucher"/"bilag"/"Buchung"/"écriture comptable"/"asiento" tasks):
@@ -696,8 +737,12 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 return diag
 
             if name == "tripletex_api":
-                # Auto-fix: ensure isCustomer:true on POST /customer
+                # Auto-fix: GPT sometimes uses "requestBody" instead of "body"
                 req_body = args.get("body")
+                if not req_body and args.get("requestBody"):
+                    req_body = args.pop("requestBody")
+                    print(f"    │  [fix] moved requestBody → body", flush=True)
+                # Auto-fix: ensure isCustomer:true on POST /customer
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/customer" and req_body:
                     if "isCustomer" not in req_body:
                         req_body["isCustomer"] = True
