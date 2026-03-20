@@ -1,0 +1,417 @@
+  --project project-5fdef027-2cfc-4398-bd8
+TIMESTAMP: 2026-03-20T20:29:44.264070Z
+TEXT_PAYLOAD: INFO:     169.254.169.126:13602 - "POST /solve HTTP/1.1" 200 OK
+
+TIMESTAMP: 2026-03-20T20:29:44.263662Z
+TEXT_PAYLOAD: ======================================================================
+
+TIMESTAMP: 2026-03-20T20:29:44.263637Z
+TEXT_PAYLOAD:   TASK COMPLETE — total 50.1s
+
+TIMESTAMP: 2026-03-20T20:29:44.263611Z
+TEXT_PAYLOAD: ======================================================================
+
+TIMESTAMP: 2026-03-20T20:29:44.263538Z
+TEXT_PAYLOAD:   ✓ DONE — 10 iterations, 125357 tokens, 50.1s
+
+TIMESTAMP: 2026-03-20T20:29:44.263485Z
+TEXT_PAYLOAD:     [1] done()
+
+TIMESTAMP: 2026-03-20T20:29:44.263480Z
+TEXT_PAYLOAD:   Tool calls (1):
+
+TIMESTAMP: 2026-03-20T20:29:44.263469Z
+TEXT_PAYLOAD:   Tokens: prompt=14660 completion=9 total_session=125357
+
+TIMESTAMP: 2026-03-20T20:29:43.522772Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:43.522738Z
+TEXT_PAYLOAD:   ITERATION 10/25
+
+TIMESTAMP: 2026-03-20T20:29:43.522712Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:43.522688Z
+TEXT_PAYLOAD:   Iteration 9 took 4.1s
+
+TIMESTAMP: 2026-03-20T20:29:43.522660Z
+TEXT_PAYLOAD:     │  response: {"raw": ""}
+
+TIMESTAMP: 2026-03-20T20:29:43.520852Z
+TEXT_PAYLOAD:     └─ 204 OK (2.9s)
+
+TIMESTAMP: 2026-03-20T20:29:40.612023Z
+TEXT_PAYLOAD:     │  params: {"sendType": "EMAIL"}
+
+TIMESTAMP: 2026-03-20T20:29:40.612017Z
+TEXT_PAYLOAD:     ┌─ API PUT /invoice/2147544376/:send
+
+TIMESTAMP: 2026-03-20T20:29:40.611952Z
+TEXT_PAYLOAD:     [1] tripletex_api({"method":"PUT","path":"/invoice/2147544376/:send","params":{"sendType":"EMAIL"}})
+
+TIMESTAMP: 2026-03-20T20:29:40.611853Z
+TEXT_PAYLOAD:   Tool calls (1):
+
+TIMESTAMP: 2026-03-20T20:29:40.611832Z
+TEXT_PAYLOAD:   Tokens: prompt=14610 completion=35 total_session=110688
+
+TIMESTAMP: 2026-03-20T20:29:39.428110Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:39.428085Z
+TEXT_PAYLOAD:   ITERATION 9/25
+
+TIMESTAMP: 2026-03-20T20:29:39.428061Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:39.428033Z
+TEXT_PAYLOAD:   Iteration 8 took 4.7s
+
+TIMESTAMP: 2026-03-20T20:29:39.428018Z
+TEXT_PAYLOAD:     │  response: {"value": {"id": 2147544376, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147544376", "invoiceNumber": 1, "invoiceDate": "2026-03-20", "customer": {"id": 108264612, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108264612"}, "creditedInvoice": 0, "isCredited": false, "invoiceDueDate": "2026-04-03", "kid": "", "invoiceComment": "", "comment": "", "orders": [{"id": 401969927, "ur…
+
+TIMESTAMP: 2026-03-20T20:29:39.425777Z
+TEXT_PAYLOAD:     └─ 201 OK (3.5s) id=2147544376
+
+TIMESTAMP: 2026-03-20T20:29:35.937845Z
+TEXT_PAYLOAD:     │  body:   {"invoiceDate": "2026-03-20", "invoiceDueDate": "2026-04-03", "orders": [{"id": 401969927}]}
+
+TIMESTAMP: 2026-03-20T20:29:35.937843Z
+TEXT_PAYLOAD:     ┌─ API POST /invoice
+
+TIMESTAMP: 2026-03-20T20:29:35.937747Z
+TEXT_PAYLOAD:     [1] tripletex_api({"method":"POST","path":"/invoice","body":{"invoiceDate":"2026-03-20","invoiceDueDate":"2026-04-03","orders":[{"id":401969927}]}})
+
+TIMESTAMP: 2026-03-20T20:29:35.937718Z
+TEXT_PAYLOAD:   Tool calls (1):
+
+TIMESTAMP: 2026-03-20T20:29:35.937709Z
+TEXT_PAYLOAD:   Tokens: prompt=14009 completion=54 total_session=96043
+
+TIMESTAMP: 2026-03-20T20:29:34.773742Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:34.773717Z
+TEXT_PAYLOAD:   ITERATION 8/25
+
+TIMESTAMP: 2026-03-20T20:29:34.773712Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:34.773681Z
+TEXT_PAYLOAD:   Iteration 7 took 4.6s
+
+TIMESTAMP: 2026-03-20T20:29:34.773671Z
+TEXT_PAYLOAD:     │  response: {"value": {"id": 1607516304, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607516304", "product": {"id": 84389888, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84389888"}, "inventory": null, "description": "", "displayName": "Licence logicielle", "count": 1.0, "unitCostCurrency": 0.0, "unitPriceExcludingVatCurrency": 9050.0, "currency": {"id": 1, "url": "kkpqfuj-amager.…
+
+TIMESTAMP: 2026-03-20T20:29:34.771054Z
+TEXT_PAYLOAD:     └─ 201 OK (3.1s) id=1607516304
+
+TIMESTAMP: 2026-03-20T20:29:31.642136Z
+TEXT_PAYLOAD:     │  body:   {"order": {"id": 401969927}, "product": {"id": 84389888}, "count": 1}
+
+TIMESTAMP: 2026-03-20T20:29:31.642131Z
+TEXT_PAYLOAD:     ┌─ API POST /order/orderline
+
+TIMESTAMP: 2026-03-20T20:29:31.642037Z
+TEXT_PAYLOAD:     [1] tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":401969927},"product":{"id":84389888},"count":1}})
+
+TIMESTAMP: 2026-03-20T20:29:31.642032Z
+TEXT_PAYLOAD:   Tool calls (1):
+
+TIMESTAMP: 2026-03-20T20:29:31.642020Z
+TEXT_PAYLOAD:   Tokens: prompt=13613 completion=45 total_session=81980
+
+TIMESTAMP: 2026-03-20T20:29:30.188290Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:30.188266Z
+TEXT_PAYLOAD:   ITERATION 7/25
+
+TIMESTAMP: 2026-03-20T20:29:30.188239Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:30.188220Z
+TEXT_PAYLOAD:   Iteration 6 took 4.9s
+
+TIMESTAMP: 2026-03-20T20:29:30.188211Z
+TEXT_PAYLOAD:     │  response: {"value": {"id": 401969927, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/order/401969927", "customer": {"id": 108264612, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108264612"}, "contact": null, "attn": null, "displayName": "1 Ordre", "receiverEmail": "", "overdueNoticeEmail": "", "number": "1", "reference": "", "department": null, "orderDate": "2026-03-20", "project": null, "invoice…
+
+TIMESTAMP: 2026-03-20T20:29:30.185956Z
+TEXT_PAYLOAD:     └─ 201 OK (3.7s) id=401969927
+
+TIMESTAMP: 2026-03-20T20:29:26.532953Z
+TEXT_PAYLOAD:     │  body:   {"customer": {"id": 108264612}, "orderDate": "2026-03-20", "deliveryDate": "2026-03-20"}
+
+TIMESTAMP: 2026-03-20T20:29:26.532950Z
+TEXT_PAYLOAD:     ┌─ API POST /order
+
+TIMESTAMP: 2026-03-20T20:29:26.532867Z
+TEXT_PAYLOAD:     [1] tripletex_api({"method":"POST","path":"/order","body":{"customer":{"id":108264612},"orderDate":"2026-03-20","deliveryDate":"2026-03-20"}})
+
+TIMESTAMP: 2026-03-20T20:29:26.532863Z
+TEXT_PAYLOAD:   Tool calls (1):
+
+TIMESTAMP: 2026-03-20T20:29:26.532851Z
+TEXT_PAYLOAD:   Tokens: prompt=13057 completion=51 total_session=68322
+
+TIMESTAMP: 2026-03-20T20:29:25.325559Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:25.325533Z
+TEXT_PAYLOAD:   ITERATION 6/25
+
+TIMESTAMP: 2026-03-20T20:29:25.325508Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:25.325480Z
+TEXT_PAYLOAD:   Iteration 5 took 4.0s
+
+TIMESTAMP: 2026-03-20T20:29:25.325457Z
+TEXT_PAYLOAD:     │  response: {"fullResultSize": 1, "from": 0, "count": 1, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 108264612, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108264612", "name": "Prairie SARL", "organizationNumber": "948165872", "globalLocationNumber": 0, "supplierNumber": 0, "customerNumber": 10001, "isSupplier": false, "isCustomer": true, "isInactive": false, …
+
+TIMESTAMP: 2026-03-20T20:29:25.323518Z
+TEXT_PAYLOAD:     └─ 200 OK (3.1s) [1 items]
+
+TIMESTAMP: 2026-03-20T20:29:22.241286Z
+TEXT_PAYLOAD:     ┌─ API GET /customer
+
+TIMESTAMP: 2026-03-20T20:29:22.241226Z
+TEXT_PAYLOAD:     [1] tripletex_api({"method":"GET","path":"/customer"})
+
+TIMESTAMP: 2026-03-20T20:29:22.241199Z
+TEXT_PAYLOAD:   Tool calls (1):
+
+TIMESTAMP: 2026-03-20T20:29:22.241169Z
+TEXT_PAYLOAD:   Tokens: prompt=12551 completion=21 total_session=55214
+
+TIMESTAMP: 2026-03-20T20:29:21.298962Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:21.298934Z
+TEXT_PAYLOAD:   ITERATION 5/25
+
+TIMESTAMP: 2026-03-20T20:29:21.298909Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:21.298873Z
+TEXT_PAYLOAD:   Iteration 4 took 5.2s
+
+TIMESTAMP: 2026-03-20T20:29:21.298864Z
+TEXT_PAYLOAD:     │  response: {"value": {"id": 84389888, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84389888", "name": "Licence logicielle", "number": "", "displayNumber": "", "description": "", "orderLineDescription": "", "costExcludingVatCurrency": 0, "costPrice": 0, "priceExcludingVatCurrency": 9050, "priceIncludingVatCurrency": 11312.5, "isInactive": false, "productUnit": null, "incomingStock": 0, "outgo…
+
+TIMESTAMP: 2026-03-20T20:29:21.295810Z
+TEXT_PAYLOAD:     └─ 201 OK (3.1s) id=84389888 name=Licence logicielle
+
+TIMESTAMP: 2026-03-20T20:29:18.157469Z
+TEXT_PAYLOAD:     │  body:   {"name": "Licence logicielle", "priceExcludingVatCurrency": 9050, "vatType": {"id": 3}}
+
+TIMESTAMP: 2026-03-20T20:29:18.157466Z
+TEXT_PAYLOAD:     ┌─ API POST /product
+
+TIMESTAMP: 2026-03-20T20:29:18.157395Z
+TEXT_PAYLOAD:     [1] tripletex_api({"method":"POST","path":"/product","body":{"name":"Licence logicielle","priceExcludingVatCurrency":9050,"vatType":{"id":3}}})
+
+TIMESTAMP: 2026-03-20T20:29:18.157390Z
+TEXT_PAYLOAD:   Tool calls (1):
+
+TIMESTAMP: 2026-03-20T20:29:18.157361Z
+TEXT_PAYLOAD:   Tokens: prompt=12213 completion=46 total_session=42642
+
+TIMESTAMP: 2026-03-20T20:29:16.137276Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:16.137255Z
+TEXT_PAYLOAD:   ITERATION 4/25
+
+TIMESTAMP: 2026-03-20T20:29:16.137202Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:16.137111Z
+TEXT_PAYLOAD:   Iteration 3 took 1.1s
+
+TIMESTAMP: 2026-03-20T20:29:16.137027Z
+TEXT_PAYLOAD:     │  [fix] blocked POST without body: /product
+
+TIMESTAMP: 2026-03-20T20:29:16.136913Z
+TEXT_PAYLOAD:     [1] tripletex_api({"method":"POST","path":"/product"})
+
+TIMESTAMP: 2026-03-20T20:29:16.136887Z
+TEXT_PAYLOAD:   Tool calls (1):
+
+TIMESTAMP: 2026-03-20T20:29:16.136877Z
+TEXT_PAYLOAD:   Tokens: prompt=12150 completion=21 total_session=30383
+
+TIMESTAMP: 2026-03-20T20:29:15.080295Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:15.080270Z
+TEXT_PAYLOAD:   ITERATION 3/25
+
+TIMESTAMP: 2026-03-20T20:29:15.080255Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:15.080243Z
+TEXT_PAYLOAD:   Iteration 2 took 4.1s
+
+TIMESTAMP: 2026-03-20T20:29:15.080193Z
+TEXT_PAYLOAD:     │  response: {"fullResultSize": 56, "from": 0, "count": 56, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 1, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/1", "name": "Fradrag inngående avgift, høy sats", "number": "1", "displayName": "1: (25%) Fradrag inngående avgift, høy sats", "percentage": 25, "deductionPercentage": 100.0, "parentType": {"id": 0, "url": …
+
+TIMESTAMP: 2026-03-20T20:29:15.077594Z
+TEXT_PAYLOAD:     └─ 200 OK (3.1s) [56 items]
+
+TIMESTAMP: 2026-03-20T20:29:11.929346Z
+TEXT_PAYLOAD:     ┌─ API GET /ledger/vatType
+
+TIMESTAMP: 2026-03-20T20:29:11.929286Z
+TEXT_PAYLOAD:     [1] tripletex_api({"method":"GET","path":"/ledger/vatType"})
+
+TIMESTAMP: 2026-03-20T20:29:11.929280Z
+TEXT_PAYLOAD:   Tool calls (1):
+
+TIMESTAMP: 2026-03-20T20:29:11.929266Z
+TEXT_PAYLOAD:   Tokens: prompt=9119 completion=24 total_session=18212
+
+TIMESTAMP: 2026-03-20T20:29:10.948742Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:10.948717Z
+TEXT_PAYLOAD:   ITERATION 2/25
+
+TIMESTAMP: 2026-03-20T20:29:10.948695Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:10.948669Z
+TEXT_PAYLOAD:   Iteration 1 took 6.1s
+
+TIMESTAMP: 2026-03-20T20:29:10.948620Z
+TEXT_PAYLOAD:     │  response: {"fullResultSize": 0, "from": 0, "count": 0, "versionDigest": "'If-None-Match' header not specified", "values": []}
+
+TIMESTAMP: 2026-03-20T20:29:10.946715Z
+TEXT_PAYLOAD:     └─ 200 OK (3.2s) [0 items]
+
+TIMESTAMP: 2026-03-20T20:29:07.734555Z
+TEXT_PAYLOAD:     ┌─ API GET /product
+
+TIMESTAMP: 2026-03-20T20:29:07.734499Z
+TEXT_PAYLOAD:     [1] tripletex_api({"method":"GET","path":"/product"})
+
+TIMESTAMP: 2026-03-20T20:29:07.734465Z
+TEXT_PAYLOAD:   Tool calls (1):
+
+TIMESTAMP: 2026-03-20T20:29:07.734448Z
+TEXT_PAYLOAD:   Tokens: prompt=9048 completion=21 total_session=9069
+
+TIMESTAMP: 2026-03-20T20:29:04.876821Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:04.876797Z
+TEXT_PAYLOAD:   ITERATION 1/25
+
+TIMESTAMP: 2026-03-20T20:29:04.876782Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:29:04.875585Z
+TEXT_PAYLOAD:   [pre] Bank account setup: OK
+
+TIMESTAMP: 2026-03-20T20:29:04.875543Z
+TEXT_PAYLOAD:   [bank] bank account set OK
+
+TIMESTAMP: 2026-03-20T20:29:04.873611Z
+TEXT_PAYLOAD:     └─ 200 OK (3.8s) id=361221172 name=Bankinnskudd
+
+TIMESTAMP: 2026-03-20T20:29:01.072580Z
+TEXT_PAYLOAD:     │  body:   {"id": 361221172, "version": 0, "number": 1920, "name": "Bankinnskudd", "bankAccountNumber": "15030100112"}
+
+TIMESTAMP: 2026-03-20T20:29:01.072571Z
+TEXT_PAYLOAD:     ┌─ API PUT /ledger/account/361221172
+
+TIMESTAMP: 2026-03-20T20:29:01.072473Z
+TEXT_PAYLOAD:   [bank] found account 1920 id=361221172 v=0
+
+TIMESTAMP: 2026-03-20T20:29:01.070488Z
+TEXT_PAYLOAD:     └─ 200 OK (3.4s) [2 items]
+
+TIMESTAMP: 2026-03-20T20:28:57.678529Z
+TEXT_PAYLOAD:     │  params: {"isBankAccount": "true", "count": 10}
+
+TIMESTAMP: 2026-03-20T20:28:57.678523Z
+TEXT_PAYLOAD:     ┌─ API GET /ledger/account
+
+TIMESTAMP: 2026-03-20T20:28:57.676618Z
+TEXT_PAYLOAD:     └─ 200 OK (3.5s) id=750599
+
+TIMESTAMP: 2026-03-20T20:28:54.148831Z
+TEXT_PAYLOAD:     ┌─ API GET /invoice/settings
+
+TIMESTAMP: 2026-03-20T20:28:54.148826Z
+TEXT_PAYLOAD:   [pre] Invoice/credit/payment task detected — ensuring bank account...
+
+TIMESTAMP: 2026-03-20T20:28:54.148750Z
+TEXT_PAYLOAD: CASE_CAPTURE:{"prompt": "Créez et envoyez une facture au client Prairie SARL (nº org. 948165872) de 9050 NOK hors TVA. La facture concerne Licence logicielle.", "files": [], "source": "competition", "captured_at": "20260320T202854"}:END_CAPTURE
+
+TIMESTAMP: 2026-03-20T20:28:54.148556Z
+TEXT_PAYLOAD: ──────────────────────────────────────────────────────────────────────
+
+TIMESTAMP: 2026-03-20T20:28:54.148550Z
+TEXT_PAYLOAD:   URL:    https://tx-proxy-jwanbnu3pq-lz.a.run.app/v2
+
+TIMESTAMP: 2026-03-20T20:28:54.148501Z
+TEXT_PAYLOAD:   Files:  0
+
+TIMESTAMP: 2026-03-20T20:28:54.148497Z
+TEXT_PAYLOAD:   Prompt: Créez et envoyez une facture au client Prairie SARL (nº org. 948165872) de 9050 NOK hors TVA. La facture concerne Licence logicielle.
+
+TIMESTAMP: 2026-03-20T20:28:54.148450Z
+TEXT_PAYLOAD: ======================================================================
+
+TIMESTAMP: 2026-03-20T20:28:54.148445Z
+TEXT_PAYLOAD:   NEW TASK RECEIVED
+
+TIMESTAMP: 2026-03-20T20:28:54.148429Z
+TEXT_PAYLOAD: ======================================================================
+
+TIMESTAMP: 2026-03-20T20:28:54.136184Z
+TEXT_PAYLOAD: 
+
+TIMESTAMP: 2026-03-20T20:28:39.685525Z
+TEXT_PAYLOAD: 
+
+TIMESTAMP: 2026-03-20T20:28:38.416833Z
+TEXT_PAYLOAD: 
+
+TIMESTAMP: 2026-03-20T20:28:38.350397Z
+TEXT_PAYLOAD: Default STARTUP TCP probe succeeded after 1 attempt for container "tripletex-agent-1" on port 8080.
+
+TIMESTAMP: 2026-03-20T20:28:38.349285Z
+TEXT_PAYLOAD: INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+
+TIMESTAMP: 2026-03-20T20:28:38.348216Z
+TEXT_PAYLOAD: INFO:     Application startup complete.
+
+TIMESTAMP: 2026-03-20T20:28:38.347879Z
+TEXT_PAYLOAD: INFO:     Waiting for application startup.
+
+TIMESTAMP: 2026-03-20T20:28:38.347785Z
+TEXT_PAYLOAD: INFO:     Started server process [1]
+
+TIMESTAMP: 2026-03-20T20:28:33.393745Z
+TEXT_PAYLOAD: Starting new instance. Reason: DEPLOYMENT_ROLLOUT - Instance started due to traffic shifting between revisions due to deployment, traffic split adjustment, or deployment health check.
+
+TIMESTAMP: 2026-03-20T20:28:26.869998Z
+TEXT_PAYLOAD: 
+
+TIMESTAMP: 2026-03-20T20:27:50.860923Z
+TEXT_PAYLOAD: 
+
+TIMESTAMP: 2026-03-20T20:21:28.759832Z
+TEXT_PAYLOAD: INFO:     Finished server process [1]
+
+TIMESTAMP: 2026-03-20T20:21:28.759728Z
+TEXT_PAYLOAD: INFO:     Application shutdown complete.
+
+TIMESTAMP: 2026-03-20T20:21:28.759396Z
+TEXT_PAYLOAD: INFO:     Waiting for application shutdown.
+
+TIMESTAMP: 2026-03-20T20:21:28.658224Z
+TEXT_PAYLOAD: INFO:     Shutting down
