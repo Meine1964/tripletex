@@ -70,9 +70,9 @@ FORMAT:
 KEY ENDPOINTS:
 - GET/POST /employee — firstName, lastName, email
 - PUT /employee/{id} — update (include id + version)
-- GET/POST /customer — name, email, isCustomer:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
+- GET/POST /customer — name, email, invoiceEmail, isCustomer:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
 - PUT /customer/{id} — update customer
-- GET/POST /supplier — name, email, isSupplier:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
+- GET/POST /supplier — name, email, invoiceEmail, isSupplier:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
 - PUT /supplier/{id} — update supplier
 - GET/POST /product — name, number, priceExcludingVatCurrency, vatType:{id:X} (do NOT set costExcludingVatCurrency)
   If vatType gives "Ugyldig mva-kode" error, the sandbox may not have VAT configured. In that case, create the product WITHOUT vatType — just {name, priceExcludingVatCurrency}. The product will still work for invoices.
@@ -89,7 +89,12 @@ KEY ENDPOINTS:
 - GET/POST /project — name, number (string), projectManager:{id:X}, startDate, endDate, customer:{id:X} (link to customer!)
   Fixed-price fields: "fixedprice" (ALL LOWERCASE!) = amount, "isFixedPrice" = true/false. Do NOT use "fixedPrice" (camelCase)!
 - GET/POST /department — name, departmentNumber (string)
-- GET/POST/DELETE /travelExpense — employee:{id:X}, title, date
+- GET/POST/DELETE /travelExpense — employee:{id:X}, title, date, travelDetails:{departureDate, returnDate, destination, purpose, isDayTrip}
+- GET/POST /travelExpense/cost — travelExpense:{id}, costCategory:{id}, paymentType:{id}, amountCurrencyIncVat
+- GET/POST /travelExpense/perDiemCompensation — travelExpense:{id}, rateCategory:{id}, location, overnightAccommodation, count
+- GET /travelExpense/costCategory — list cost categories (Fly, Taxi, Hotell, etc.)
+- GET /travelExpense/paymentType — list payment types (usually just "Privat utlegg")
+- GET /travelExpense/rateCategory — list per diem rate categories (filter by year and domestic/foreign)
 - GET /activity — list available activities (e.g. "Fakturerbart arbeid", "Administrasjon")
 - GET/POST /timesheet/entry — time entries. GET needs dateFrom+dateTo params. POST: {employee:{id}, project:{id}, activity:{id}, date, hours, comment}
 - GET/POST /project/hourlyRates — hourly rates per project. GET needs projectId param.
@@ -280,9 +285,70 @@ Step 4: Create the milestone invoice.
 
 Step 5: Call done().
 
-TRAVEL EXPENSE WORKFLOW:
-- GET /employee or create one
-- POST /travelExpense with employee:{id:X}, title, date
+TRAVEL EXPENSE WORKFLOW (for "travel expense"/"reiseregning"/"nota de gastos de viaje"/"note de frais"/"Reisekostenabrechnung"/"nota de despesas" tasks):
+The task asks you to create a travel expense report with costs (receipts) and/or per diem (daily allowance).
+"gastos de viaje" (ES) = "frais de voyage" (FR) = "Reisekosten" (DE) = "despesas de viagem" (PT) = "reiseregning" (NO) = travel expense.
+"dietas" (ES) = "indemnités journalières" (FR) = "Tagegeld" (DE) = "diárias" (PT) = "diett" (NO) = per diem.
+
+Step 1: Get or create the employee.
+  Try POST /employee with {firstName, lastName, email}.
+  If 422: GET /employee?fields=*, then PUT /employee/{id} with {id, version, firstName, lastName, dateOfBirth: "1990-01-01"}.
+  CRITICAL: Do NOT include email in PUT body — email is immutable.
+
+Step 2: Create the travel expense.
+  POST /travelExpense with:
+  {
+    "employee": {"id": EMP_ID},
+    "title": "TRIP DESCRIPTION",
+    "date": "{today}",
+    "travelDetails": {
+      "departureDate": "YYYY-MM-DD",
+      "returnDate": "YYYY-MM-DD",
+      "destination": "CITY",
+      "purpose": "DESCRIPTION",
+      "isDayTrip": false
+    }
+  }
+  IMPORTANT: travelDetails with departureDate and returnDate are REQUIRED if per diem is needed.
+  Calculate dates: if task says "5 days", use today minus 5 as departure, today as return.
+
+Step 3: Look up cost categories and payment types.
+  GET /travelExpense/costCategory — find categories matching expenses:
+    Common: "Fly" (plane), "Taxi", "Hotell" (hotel), "Tog" (train), "Buss" (bus), "Parkering", "Leiebil" (rental car)
+  GET /travelExpense/paymentType — typically returns one: "Privat utlegg" (private expense). Use its id.
+
+Step 4: Add each expense as a cost line.
+  POST /travelExpense/cost with:
+  {
+    "travelExpense": {"id": TE_ID},
+    "costCategory": {"id": CATEGORY_ID},
+    "paymentType": {"id": PAYMENT_TYPE_ID},
+    "amountCurrencyIncVat": AMOUNT
+  }
+  DO NOT include "comment" or "description" — these fields don't exist on Cost!
+  Create one cost line per expense (plane ticket, taxi, hotel, etc.).
+  Match costCategory by EXACT description: "Fly" for plane, "Taxi" for taxi, "Hotell" for hotel, "Tog" for train, "Buss" for bus.
+
+Step 5: Add per diem compensation (if task mentions daily allowance/dietas/diett).
+  GET /travelExpense/rateCategory — returns ~459 categories across many years. You MUST filter correctly!
+  CRITICAL: The rateCategory MUST match the year of the travel expense date!
+    - Each category has fromDate and toDate (e.g. "2026-01-01" to "2026-12-31").
+    - You MUST pick a category where today's date falls between fromDate and toDate.
+    - For a 2026 travel expense: find categories with fromDate="2026-..." or toDate="2026-...".
+    - For multi-day trips with overnight: look for name containing "Overnatting over 12 timer - innland" with matching year.
+    - For day trips: look for name containing "Dagsreise" with matching year.
+    - WRONG: using an old category from 2008! Check the dates!
+  POST /travelExpense/perDiemCompensation with:
+  {
+    "travelExpense": {"id": TE_ID},
+    "rateCategory": {"id": RATE_CAT_ID},
+    "location": "CITY",
+    "overnightAccommodation": "NONE",
+    "count": NUMBER_OF_DAYS
+  }
+  If the API-calculated rate differs from the task amount, that's OK — Norwegian tax rules set the rate.
+
+Step 6: Call done().
 
 PROJECT INVOICE / TIME REGISTRATION WORKFLOW (for "register hours"/"registre horas"/"enregistrer heures"/"Stunden erfassen" + "generate project invoice"/"genere faktura" tasks):
 The task asks you to register time entries on a project activity and then create an invoice.
@@ -326,13 +392,15 @@ IMPORTANT: The endpoint is /timesheet/entry (NOT /timeEntries, NOT /time/timeEnt
 
 SUPPLIER WORKFLOW:
 - IMPORTANT: Use POST /supplier (NOT POST /customer with isSupplier:true!)
-- POST /supplier with: name, organizationNumber, email, phoneNumber (if given)
+- POST /supplier with: name, organizationNumber, email, invoiceEmail, phoneNumber (if given)
+- EMAIL: Always set BOTH "email" and "invoiceEmail" to the same value when an email is given.
 - ADDRESSES: If address given, include in POST body: "physicalAddress": {"addressLine1": "STREET", "postalCode": "CODE", "city": "CITY"}, "postalAddress": {same}
 - Supplier and customer are SEPARATE endpoints in Tripletex.
 - "Lieferant" (German) = "leverandør" (Norwegian) = "fournisseur" (French) = "proveedor" (Spanish) = "fornecedor" (Portuguese) = supplier
 
 CUSTOMER WORKFLOW:
-- POST /customer with: name, isCustomer:true, organizationNumber, email, phoneNumber (if given)
+- POST /customer with: name, isCustomer:true, organizationNumber, email, invoiceEmail, phoneNumber (if given)
+- EMAIL: Always set BOTH "email" and "invoiceEmail" to the same value when an email is given.
 - ADDRESSES: If the task specifies a customer address (street, postal code, city), include it DIRECTLY in POST /customer body using these fields:
   * "physicalAddress": {"addressLine1": "STREET", "postalCode": "CODE", "city": "CITY"}
   * "postalAddress": {"addressLine1": "STREET", "postalCode": "CODE", "city": "CITY"}
@@ -348,7 +416,7 @@ SUPPLIER INVOICE / INCOMING INVOICE WORKFLOW (for "supplier invoice"/"leverandø
 The task asks you to register an invoice RECEIVED FROM a supplier (not an outgoing invoice to a customer).
 
 Step 1: Create the supplier.
-  POST /supplier with: name, organizationNumber (if given), email (if given), phoneNumber (if given)
+  POST /supplier with: name, organizationNumber (if given), email (if given), invoiceEmail (same as email), phoneNumber (if given)
   NOTE: Use /supplier NOT /customer! Suppliers are separate entities.
 
 Step 2: Look up VAT types and accounts.
@@ -663,11 +731,14 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
     # Pre-check: set bank account for invoice-related tasks (also credit note and payment tasks need invoices)
     prompt_lower = prompt.lower()
+    # Strip email addresses before keyword check to avoid false positives (e.g. "faktura@company.no")
+    import re as _re
+    prompt_for_kw = _re.sub(r'\S+@\S+', '', prompt_lower)
     invoice_keywords = ["faktura", "invoice", "rechnung", "factura", "facture", "fatura",
                         "credit", "kredit", "gutschrift", "nota de crédito",
                         "payment", "betaling", "zahlung", "pago", "pagamento", "paiement",
                         "reverse", "revert", "devuelto", "tilbakefør", "stornieren", "annuler"]
-    if any(kw in prompt_lower for kw in invoice_keywords):
+    if any(kw in prompt_for_kw for kw in invoice_keywords):
         print("  [pre] Invoice/credit/payment task detected — ensuring bank account...", flush=True)
         result = ensure_bank_account(base_url, auth)
         print(f"  [pre] Bank account setup: {result}", flush=True)
@@ -802,6 +873,15 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/customer" and req_body:
                     if "isCustomer" not in req_body:
                         req_body["isCustomer"] = True
+                    # Auto-set invoiceEmail from email if missing
+                    if req_body.get("email") and not req_body.get("invoiceEmail"):
+                        req_body["invoiceEmail"] = req_body["email"]
+                        print(f"    │  [fix] copied email to invoiceEmail on POST /customer", flush=True)
+                # Auto-fix: ensure invoiceEmail on POST /supplier
+                if args["method"] == "POST" and args["path"].rstrip("/") == "/supplier" and req_body:
+                    if req_body.get("email") and not req_body.get("invoiceEmail"):
+                        req_body["invoiceEmail"] = req_body["email"]
+                        print(f"    │  [fix] copied email to invoiceEmail on POST /supplier", flush=True)
                 # Auto-fix: strip email from PUT /employee (email is immutable) + ensure dateOfBirth
                 is_employee_put = (args["method"] == "PUT" and "/employee/" in args["path"] and "employment" not in args["path"] and req_body)
                 if is_employee_put:
@@ -829,6 +909,39 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         if p.get("row", 1) == 0:
                             p["row"] = postings.index(p) + 1
                             print(f"    │  [fix] supplierInvoice posting: row 0 → {p['row']}", flush=True)
+                # Auto-fix: perDiemCompensation — find correct rateCategory for the travel expense year
+                if args["method"] == "POST" and args["path"].rstrip("/") == "/travelExpense/perDiemCompensation" and req_body:
+                    te_ref_id = req_body.get("travelExpense", {}).get("id")
+                    if te_ref_id:
+                        try:
+                            te_resp = call_tripletex(base_url, auth, "GET", f"/travelExpense/{te_ref_id}",
+                                                     params={"fields": "date,travelDetails"})
+                            te_date = te_resp.get("value", {}).get("date", today)
+                            te_year = te_date[:4]
+                            # Look up all rate categories and find one matching the year
+                            rc_resp = call_tripletex(base_url, auth, "GET", "/travelExpense/rateCategory",
+                                                     params={"count": 1000})
+                            all_cats = rc_resp.get("values", [])
+                            current_cat = req_body.get("rateCategory", {}).get("id")
+                            # Find matching category: same type of name, date range covering travel year
+                            # Determine if looking for overnight or day trip
+                            is_overnight = any(kw in str(req_body.get("overnightAccommodation", "")).upper() for kw in ["NONE", "HOTEL"]) or req_body.get("count", 1) > 1
+                            target_names = ["Overnatting over 12 timer - innland"] if is_overnight else ["Dagsreise over 12 timer - innland", "Dagsreise 6-12 timer - innland"]
+                            best_cat = None
+                            for rc in all_cats:
+                                rc_from = rc.get("fromDate", "")
+                                rc_to = rc.get("toDate", "")
+                                rc_name = rc.get("name", "")
+                                if rc_from and rc_from[:4] == te_year and any(tn in rc_name for tn in target_names):
+                                    if rc.get("isValidDomestic"):
+                                        best_cat = rc
+                                        break
+                            if best_cat and best_cat["id"] != current_cat:
+                                old_id = current_cat
+                                req_body["rateCategory"] = {"id": best_cat["id"]}
+                                print(f"    │  [fix] perDiem rateCategory {old_id} → {best_cat['id']} ({best_cat['name']})", flush=True)
+                        except Exception as e:
+                            print(f"    │  [fix] perDiem auto-fix failed: {e}", flush=True)
                 result = call_tripletex(
                     base_url, auth,
                     method=args["method"],

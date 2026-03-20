@@ -1,0 +1,45 @@
+{
+  "id": "0075",
+  "name": "supplier_create_pt_attempt27",
+  "description": "Register supplier with org number and email (Portuguese) - from attempt 27 task 6",
+  "prompt": "Registe o fornecedor Solmar Lda com número de organização 978911226. E-mail: faktura@solmarlda.no.",
+  "files": [],
+  "checks": [
+    {
+      "type": "api_called",
+      "method": "POST",
+      "path": "/supplier",
+      "description": "Supplier was created via POST /supplier"
+    },
+    {
+      "type": "response_field",
+      "path": "/supplier",
+      "field": "name",
+      "expected": "Solmar Lda",
+      "description": "Supplier name is Solmar Lda"
+    },
+    {
+      "type": "response_field",
+      "path": "/supplier",
+      "field": "organizationNumber",
+      "expected": "978911226",
+      "description": "Organization number is 978911226"
+    },
+    {
+      "type": "response_field",
+      "path": "/supplier",
+      "field": "email",
+      "expected": "faktura@solmarlda.no",
+      "description": "Email is set"
+    },
+    {
+      "type": "response_field",
+      "path": "/supplier",
+      "field": "invoiceEmail",
+      "expected": "faktura@solmarlda.no",
+      "description": "invoiceEmail is also set"
+    }
+  ],
+  "source": "competition_attempt_27",
+  "notes": "Check 5 failed in production - invoiceEmail was not set. Also falsely triggered bank account setup because 'faktura' appeared in email address."
+}

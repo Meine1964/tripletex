@@ -1,0 +1,29 @@
+{
+  "id": "0076",
+  "name": "travel_expense_es_attempt28",
+  "description": "Travel expense with per diem and costs (Spanish) - from attempt 28",
+  "prompt": "Registre una nota de gastos de viaje para Miguel Pérez (miguel.perez@example.org) por \"Visita cliente Tromsø\". El viaje duró 5 días con dietas (tarifa diaria 800 NOK). Gastos: billete de avión 2600 NOK y taxi 800 NOK.",
+  "files": [],
+  "checks": [
+    {
+      "type": "api_called",
+      "method": "POST",
+      "path": "/travelExpense",
+      "description": "Travel expense was created"
+    },
+    {
+      "type": "api_called",
+      "method": "POST",
+      "path": "/travelExpense/cost",
+      "description": "Cost lines were added"
+    },
+    {
+      "type": "api_called",
+      "method": "POST",
+      "path": "/travelExpense/perDiemCompensation",
+      "description": "Per diem compensation was added"
+    }
+  ],
+  "source": "competition_attempt_28",
+  "notes": "Got 2/8 in production. Travel expense workflow was too minimal - no guidance on costs, per diem, travelDetails, costCategory, paymentType, rateCategory."
+}
