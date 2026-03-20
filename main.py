@@ -70,9 +70,9 @@ FORMAT:
 KEY ENDPOINTS:
 - GET/POST /employee — firstName, lastName, email
 - PUT /employee/{id} — update (include id + version)
-- GET/POST /customer — name, email, invoiceEmail, isCustomer:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
+- GET/POST /customer — name, email, invoiceEmail, overdueNoticeEmail, isCustomer:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
 - PUT /customer/{id} — update customer
-- GET/POST /supplier — name, email, invoiceEmail, isSupplier:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
+- GET/POST /supplier — name, email, invoiceEmail, overdueNoticeEmail, isSupplier:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
 - PUT /supplier/{id} — update supplier
 - GET/POST /product — name, number, priceExcludingVatCurrency, vatType:{id:X} (do NOT set costExcludingVatCurrency)
   If vatType gives "Ugyldig mva-kode" error, the sandbox may not have VAT configured. In that case, create the product WITHOUT vatType — just {name, priceExcludingVatCurrency}. The product will still work for invoices.
@@ -392,15 +392,15 @@ IMPORTANT: The endpoint is /timesheet/entry (NOT /timeEntries, NOT /time/timeEnt
 
 SUPPLIER WORKFLOW:
 - IMPORTANT: Use POST /supplier (NOT POST /customer with isSupplier:true!)
-- POST /supplier with: name, organizationNumber, email, invoiceEmail, phoneNumber (if given)
-- EMAIL: Always set BOTH "email" and "invoiceEmail" to the same value when an email is given.
+- POST /supplier with: name, organizationNumber, email, invoiceEmail, overdueNoticeEmail, phoneNumber (if given)
+- EMAIL: Always set ALL THREE email fields to the same value: "email", "invoiceEmail", AND "overdueNoticeEmail".
 - ADDRESSES: If address given, include in POST body: "physicalAddress": {"addressLine1": "STREET", "postalCode": "CODE", "city": "CITY"}, "postalAddress": {same}
 - Supplier and customer are SEPARATE endpoints in Tripletex.
 - "Lieferant" (German) = "leverandør" (Norwegian) = "fournisseur" (French) = "proveedor" (Spanish) = "fornecedor" (Portuguese) = supplier
 
 CUSTOMER WORKFLOW:
-- POST /customer with: name, isCustomer:true, organizationNumber, email, invoiceEmail, phoneNumber (if given)
-- EMAIL: Always set BOTH "email" and "invoiceEmail" to the same value when an email is given.
+- POST /customer with: name, isCustomer:true, organizationNumber, email, invoiceEmail, overdueNoticeEmail, phoneNumber (if given)
+- EMAIL: Always set ALL THREE email fields to the same value: "email", "invoiceEmail", AND "overdueNoticeEmail".
 - ADDRESSES: If the task specifies a customer address (street, postal code, city), include it DIRECTLY in POST /customer body using these fields:
   * "physicalAddress": {"addressLine1": "STREET", "postalCode": "CODE", "city": "CITY"}
   * "postalAddress": {"addressLine1": "STREET", "postalCode": "CODE", "city": "CITY"}
@@ -873,15 +873,21 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/customer" and req_body:
                     if "isCustomer" not in req_body:
                         req_body["isCustomer"] = True
-                    # Auto-set invoiceEmail from email if missing
+                    # Auto-set invoiceEmail and overdueNoticeEmail from email if missing
                     if req_body.get("email") and not req_body.get("invoiceEmail"):
                         req_body["invoiceEmail"] = req_body["email"]
                         print(f"    │  [fix] copied email to invoiceEmail on POST /customer", flush=True)
-                # Auto-fix: ensure invoiceEmail on POST /supplier
+                    if req_body.get("email") and not req_body.get("overdueNoticeEmail"):
+                        req_body["overdueNoticeEmail"] = req_body["email"]
+                        print(f"    │  [fix] copied email to overdueNoticeEmail on POST /customer", flush=True)
+                # Auto-fix: ensure invoiceEmail and overdueNoticeEmail on POST /supplier
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/supplier" and req_body:
                     if req_body.get("email") and not req_body.get("invoiceEmail"):
                         req_body["invoiceEmail"] = req_body["email"]
                         print(f"    │  [fix] copied email to invoiceEmail on POST /supplier", flush=True)
+                    if req_body.get("email") and not req_body.get("overdueNoticeEmail"):
+                        req_body["overdueNoticeEmail"] = req_body["email"]
+                        print(f"    │  [fix] copied email to overdueNoticeEmail on POST /supplier", flush=True)
                 # Auto-fix: strip email from PUT /employee (email is immutable) + ensure dateOfBirth
                 is_employee_put = (args["method"] == "PUT" and "/employee/" in args["path"] and "employment" not in args["path"] and req_body)
                 if is_employee_put:
