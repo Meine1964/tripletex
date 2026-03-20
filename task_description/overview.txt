@@ -1,0 +1,29 @@
+TRIPLETEX AI ACCOUNTING AGENT — COMPETITION OVERVIEW
+
+Goal: Build an AI agent that completes accounting tasks in Tripletex via its REST API.
+
+Flow:
+1. Submit your HTTPS /solve endpoint URL
+2. Platform provisions a fresh Tripletex sandbox (empty, starts from scratch)
+3. Platform sends a random accounting task as a POST to /solve
+4. Agent reads prompt + optional file attachments
+5. Agent calls Tripletex API via provided proxy to complete the task
+6. Platform verifies result field-by-field
+7. Score updates on leaderboard
+
+Key Facts:
+- 30 task types, 56 variants each (7 languages × 8 datasets)
+- Languages: Norwegian (bokmål), Nynorsk, English, Spanish, Portuguese, German, French
+- Timeout: 300 seconds (5 minutes)
+- Score range: 0.0 (failed) to 6.0 (perfect Tier 3 + best efficiency)
+- Best score per task is kept — bad runs never lower your score
+- Each submission gets a brand new empty Tripletex account
+
+Task Categories:
+- Employees: create, set roles, update contact info
+- Customers & Products: register customers, create products
+- Invoicing: create invoices, register payments, issue credit notes
+- Travel Expenses: register or delete reports
+- Projects: create projects linked to customers
+- Corrections: delete or reverse incorrect entries
+- Departments: create departments, enable accounting modules

@@ -1,0 +1,52 @@
+ENDPOINT SPECIFICATION
+
+Method: POST /solve
+Content-Type: application/json
+Timeout: 300 seconds
+
+REQUEST BODY:
+{
+  "prompt": "Norwegian natural-language task description",
+  "files": [
+    {
+      "filename": "faktura.pdf",
+      "content_base64": "JVBERi0xLjQg...",
+      "mime_type": "application/pdf"
+    }
+  ],
+  "tripletex_credentials": {
+    "base_url": "https://tx-proxy.ainm.no/v2",
+    "session_token": "abc123..."
+  }
+}
+
+Fields:
+- prompt (string): Task in natural language
+- files (array): Attachments (PDFs, images) — may be empty
+- tripletex_credentials.base_url: Proxy URL — must use this, not direct Tripletex URL
+- tripletex_credentials.session_token: Auth token
+
+RESPONSE: {"status": "completed"} with HTTP 200
+
+AUTHENTICATION:
+- Tripletex API: Basic Auth — username: 0, password: session_token
+- Optional: Set an API key on submission → sent as Bearer token to protect your endpoint
+
+REQUIREMENTS:
+- Must be HTTPS
+- Must respond within 5 minutes
+- Must return {"status": "completed"}
+- All API calls must go through the provided base_url (proxy)
+
+AVAILABLE ENDPOINTS:
+  /employee          GET, POST, PUT    Manage employees
+  /customer          GET, POST, PUT    Manage customers
+  /product           GET, POST         Manage products
+  /invoice           GET, POST         Create and query invoices
+  /order             GET, POST         Manage orders
+  /travelExpense     GET, POST, PUT, DELETE   Travel expense reports
+  /project           GET, POST         Manage projects
+  /department        GET, POST         Manage departments
+  /ledger/account    GET               Chart of accounts
+  /ledger/posting    GET               Ledger postings
+  /ledger/voucher    GET, POST, DELETE Vouchers

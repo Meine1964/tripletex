@@ -1,0 +1,65 @@
+TRIPLETEX API v2 REFERENCE
+
+Base URL: https://kkpqfuj-amager.tripletex.dev/v2
+
+CONVENTIONS:
+- Partial updates: PUT with optional fields (not PATCH)
+- Actions: prefixed with ":" e.g. /hours/123/:approve
+- Summaries: prefixed with ">" e.g. /hours/>thisWeeksBillables
+- Dates: YYYY-MM-DD (ISO 8601)
+- DateTimes: YYYY-MM-DDThh:mm:ss (ISO 8601)
+- "version" field on resources prevents concurrent update conflicts (include in PUT/POST)
+
+AUTHENTICATION:
+- Basic Auth: username = 0 (or company ID), password = sessionToken
+- Header: Authorization: Basic base64("0:{sessionToken}")
+
+FIELDS PARAMETER:
+- project,activity,hours → returns those three fields
+- project(*) → all subfields of project
+- project(name) → only project.name
+- *,activity(name),employee(*) → all top-level + specific sub-selections
+
+SORTING: comma-separated, "-" prefix for descending
+  e.g. project.name,-date
+
+RESPONSE ENVELOPES:
+  Multiple: {"from":N,"count":N,"values":[...]}
+  Single:   {"value":{...}}
+  Error:    {"status":N,"code":N,"message":"...","validationMessages":[{"field":"...","message":"..."}]}
+
+STATUS CODES:
+  200 OK, 201 Created, 204 No Content
+  400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found
+  409 Conflict, 422 Validation Error, 429 Rate Limited, 500 Internal Error
+
+KEY ENDPOINTS:
+  /employee                    GET, POST, PUT
+  /employee/employment         GET, POST, PUT
+  /customer                    GET, POST, PUT
+  /customer/category           GET, POST
+  /product                     GET, POST
+  /product/unit                GET
+  /order                       GET, POST
+  /order/orderline             GET, POST
+  /invoice                     GET, POST
+  /invoice/details             GET
+  /invoice/paymentType         GET
+  /travelExpense               GET, POST, PUT, DELETE
+  /project                     GET, POST
+  /project/category            GET
+  /department                  GET, POST
+  /ledger/account              GET
+  /ledger/posting              GET
+  /ledger/voucher              GET, POST, DELETE
+  /ledger/vatType              GET
+  /contact                     GET, POST
+  /country                     GET
+  /currency                    GET
+  /bank/reconciliation         GET
+  /bank/statement              GET
+  /company                     GET
+  /company/settings/altinn     GET
+  /deliveryAddress             GET, POST
+  /inventory                   GET
+  /purchaseOrder               GET, POST

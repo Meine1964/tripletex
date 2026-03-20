@@ -1,0 +1,46 @@
+EXAMPLES & TIPS
+
+COMMON TASK PATTERNS:
+  Create single entity    "Create employee Ola Nordmann"       POST /employee
+  Create with linking     "Create invoice for customer"        GET /customer → POST /order → POST /invoice
+  Modify existing         "Add phone to contact"               GET /customer → PUT /customer/{id}
+  Delete/reverse          "Delete travel expense"              GET /travelExpense → DELETE /travelExpense/{id}
+  Multi-step setup        "Register payment"                   POST /customer → POST /invoice → POST /payment
+
+API EXAMPLES:
+
+List employees:
+  GET {base_url}/employee?fields=id,firstName,lastName,email
+  Auth: Basic 0:{session_token}
+
+Create customer:
+  POST {base_url}/customer
+  Body: {"name":"Acme AS","email":"post@acme.no","isCustomer":true}
+
+Create invoice:
+  POST {base_url}/invoice
+  Body: {"invoiceDate":"2026-03-03","invoiceDueDate":"2026-03-03","customer":{"id":X},"orders":[{"id":Y}]}
+
+Search:
+  GET {base_url}/customer?name=Acme&fields=id,name,email&count=10
+
+COMMON ERRORS:
+  401  Wrong auth format          Use Basic Auth: username 0, password = session_token
+  404  Wrong endpoint path        Check Tripletex v2 API docs
+  422  Missing required fields    Read validationMessages in error response
+  429  Rate limit hit             Wait and retry
+  Empty values array              Broaden search parameters
+
+TIPS:
+- Sandbox starts empty — create prerequisites (customer, product) before invoices
+- Use ?fields=* to see all available fields
+- Norwegian chars (æ,ø,å) work fine as UTF-8
+- All proxy API calls are logged — visible in submissions view
+- Prompts in 7 languages — agent must handle all
+
+EFFICIENCY OPTIMIZATION:
+- Parse prompt fully before making API calls
+- Avoid trial-and-error: every 4xx error reduces efficiency bonus
+- Don't fetch entities you just created (you already have the ID from response)
+- Batch where endpoints support lists
+- Fix errors in one retry using Tripletex error messages

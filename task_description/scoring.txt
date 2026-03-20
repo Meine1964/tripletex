@@ -1,0 +1,31 @@
+SCORING
+
+CORRECTNESS (field-by-field):
+- After agent responds, platform queries Tripletex to verify created/modified entities.
+- Each task has specific checks with point values.
+- Example "Create employee" (max 10 pts): employee found (2), first name (1), last name (1), email (1), admin role (5)
+- Raw score normalized to 0–1: correctness = points_earned / max_points
+
+TIER MULTIPLIER:
+  Tier 1 (×1): Create employee, create customer — available from start
+  Tier 2 (×2): Create invoice, register payment — opens early Friday
+  Tier 3 (×3): Complex multi-step workflows — opens early Saturday
+
+EFFICIENCY BONUS (only for perfect correctness = 1.0):
+- Can up to double your tier score
+- Based on: (1) API call count vs best known solution, (2) number of 4xx errors
+- Examples for Tier 2: failed=0.0, 80% correct=1.6, perfect+many errors≈2.1, perfect+efficient≈2.6, perfect+best efficiency=4.0
+- Benchmarks recalculated periodically; best scores recalculated every 12 hours
+
+BEST SCORE PER TASK:
+- All-time best kept; bad runs never lower score
+- 30 tasks tracked independently
+- Leaderboard = sum of best scores across all task types
+
+TASK ASSIGNMENT:
+- One task per submission, weighted toward less-attempted tasks
+- 56 variants per task (7 languages × 8 datasets)
+
+RATE LIMITS:
+  Verified teams:   3 concurrent, 5 per task per day
+  Unverified teams: 1 concurrent, 2 per task per day

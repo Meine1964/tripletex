@@ -1,0 +1,211 @@
+LESSONS LEARNED — Hard-won knowledge from competition submissions
+================================================================
+
+Last updated: 2026-03-20
+
+These are bugs, gotchas, and insights discovered through actual competition
+submissions and log analysis. This file supplements the official API docs.
+
+
+=== CRITICAL: HTTP METHODS FOR ACTION ENDPOINTS ===
+
+Action endpoints (path contains /:) are PUT, NOT POST:
+  PUT  /invoice/{id}/:send              (NOT POST!)
+  PUT  /invoice/{id}/:payment           (NOT POST!)
+  PUT  /invoice/{id}/:createCreditNote  (NOT POST!)
+  PUT  /invoice/{id}/:createReminder    (NOT POST!)
+  PUT  /order/{id}/:invoice             (NOT POST!)
+
+Action endpoints use QUERY PARAMETERS, not JSON body:
+  WRONG:  PUT /invoice/123/:payment  body={"paymentDate":"...","paymentTypeId":1}
+  RIGHT:  PUT /invoice/123/:payment  ?paymentDate=2024-01-15&paymentTypeId=1&paidAmount=1000
+
+The API returns 422 with "Kan ikke være null" for all fields if you send
+them as body instead of query params. The auto-convert in call_tripletex()
+handles this, but GPT should also use params.
+
+
+=== COMPANY ENDPOINTS ===
+
+GET /company         → DOES NOT EXIST! Returns 405 Method Not Allowed
+GET /company/{id}    → Correct. Use id=0 (means "current company"), or try 1, 2
+PUT /company         → No ID in path! Body must include {id, version, ...}
+PUT /company/{id}    → DOES NOT EXIST! Returns 405
+
+CompanyDTO field names (discovered via fields=*):
+  - bankAccountNumber is NOT a valid field for fields= filter
+  - Use fields=* to get all fields and discover the actual field names
+  - To set bank account: PUT /company with body {id, version, bankAccountNumber:"12345678901"}
+
+
+=== EMPLOYEE CREATION ===
+
+POST /employee may fail with:
+  422: "Brukertype kan ikke være '0' eller tom"
+  (User type cannot be '0' or empty)
+
+The sandbox may require a userType field. Workaround:
+  1. GET /employee to find the existing admin employee
+  2. PUT /employee/{id} to update admin's firstName, lastName, email
+  3. Use the admin's ID as the project manager / expense owner
+
+
+=== PROJECT CREATION ===
+
+POST /project requires:
+  - name (string)
+  - number (string, like "1" or "P001")
+  - projectManager: {id: X}  (employee reference)
+  - startDate (YYYY-MM-DD)
+
+Optional but important:
+  - customer: {id: X}  ← MUST include if task says "linked to customer"
+  - endDate (YYYY-MM-DD)
+
+Common failure: project created without customer link when task says
+"verknüpft mit Kunden" / "linked to customer" / "tilknyttet kunden".
+This fails the check even though the project itself was created.
+
+
+=== INVOICE WORKFLOW ===
+
+Full correct sequence:
+  1. POST /customer (name, isCustomer:true, organizationNumber, email)
+  2. GET /ledger/vatType (find correct vatType ID — NEVER guess!)
+  3. POST /product (name, priceExcludingVatCurrency, vatType:{id:X})
+  4. POST /order (customer:{id:X}, orderDate, deliveryDate)
+  5. POST /order/orderline (order:{id:X}, product:{id:X}, count:1)
+  6. POST /invoice (invoiceDate, invoiceDueDate, orders:[{id:X}])
+  7. PUT /invoice/{id}/:send?sendMethod=EMAIL (if task says "send")
+
+WRONG: POST /invoice/:createFromOrder (doesn't exist)
+RIGHT: POST /invoice with orders:[{id:X}] array
+
+Bank account setup (needed for sending):
+  GET /company/0?fields=* → PUT /company (no ID!) with {id, version, bankAccountNumber:"12345678901"}
+
+
+=== PAYMENT REGISTRATION ===
+
+PUT /invoice/{id}/:payment with QUERY PARAMS:
+  ?paymentDate=2024-01-15
+  &paymentTypeId=26151806       (get from GET /invoice/paymentType)
+  &paidAmount=47900
+  &paidAmountCurrency=47900
+
+If sent as body, you get 422 "Kan ikke være null" for paymentDate, paymentTypeId, etc.
+
+
+=== PRODUCT CREATION ===
+
+POST /product:
+  - name (string)
+  - number (string, optional but useful)
+  - priceExcludingVatCurrency (number)
+  - vatType: {id: X}  ← get from GET /ledger/vatType!
+  
+DO NOT include costExcludingVatCurrency (causes issues).
+vatType IDs vary per sandbox — ALWAYS look up first.
+
+Common vatType values (but ALWAYS verify):
+  number 3 = "Utgående mva, høy sats 25%" (standard output VAT)
+  number 6 = VAT exempt / no VAT
+
+
+=== MULTI-LANGUAGE SUPPORT ===
+
+Tasks come in 7 languages. Key translations:
+  send invoice:    send/sende/senden/enviar/envoyer/enviar
+  invoice:         invoice/faktura/Rechnung/factura/facture/fatura/regning
+  customer:        customer/kunde/Kunde/cliente/client/cliente
+  employee:        employee/ansatt/Mitarbeiter/empleado/employé/funcionário
+  project:         project/prosjekt/Projekt/proyecto/projet/projeto
+  department:      department/avdeling/Abteilung/departamento/département
+  linked to:       linked/tilknyttet/verknüpft/vinculado/lié/ligado
+  including VAT:   inkl. mva/including VAT/inkl. MwSt/IVA incluido/TTC
+  excluding VAT:   uten mva/excluding VAT/ohne MwSt/sin IVA/HT
+
+
+=== SCORING & EFFICIENCY ===
+
+- Each 4xx error reduces efficiency score
+- Reuse IDs from POST responses — never re-fetch what you just created
+- 5 submissions per task type per day (rate limit)
+- 300 second timeout per task
+- Best score per task is kept
+- 3 tiers of difficulty (×1, ×2, ×3 multiplier)
+
+
+=== DEPLOYMENT (Google Cloud Run) ===
+
+Deploy command:
+  gcloud run deploy tripletex-agent \
+    --source . \
+    --region europe-north1 \
+    --allow-unauthenticated \
+    --set-env-vars "OPENAI_API_KEY=..." \
+    --memory 1Gi \
+    --timeout 300 \
+    --port 8080
+
+Service URL: https://tripletex-agent-52373769937.europe-north1.run.app
+Submit at: app.ainm.no/submit/tripletex
+Solve endpoint: /solve
+
+View logs:
+  gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=tripletex-agent" \
+    --limit 200 --format="table(timestamp,textPayload)" --freshness=10m
+
+
+=== NETWORK ISSUES ===
+
+Corporate TLS-intercepting proxy blocks all tunnel solutions:
+  ngrok, cloudflared, Pinggy, localhost.run, localtunnel, pyngrok, bore — ALL FAIL
+  
+Google Cloud Run is the only working deployment method.
+
+
+=== TASK TYPES ENCOUNTERED ===
+
+1. Invoice — create customer, product, order, orderline, invoice, optionally send
+2. Invoice + payment — same as above + register payment
+3. Department — create department with name and number
+4. Project — create project linked to customer with project manager
+5. Employee — create or configure employee
+6. Product — create product with correct VAT type
+7. Supplier — register supplier (use POST /supplier, NOT POST /customer with isSupplier!)
+
+Each type has 56 variants (7 languages × 8 datasets).
+
+
+=== SUPPLIER vs CUSTOMER ===
+
+Tripletex has SEPARATE endpoints:
+  POST /supplier — for suppliers (leverandør/Lieferant/fournisseur)
+  POST /customer — for customers (kunde/Kunde/client)
+
+Using POST /customer with isSupplier:true does NOT work correctly.
+The competition checks verify via the /supplier endpoint.
+
+
+=== COMPANY ENDPOINT RETURNS 204 ===
+
+GET /company/0?fields=* may return 204 (No Content) instead of 200.
+This means the company exists but no data is returned.
+Try /company/1 or /company/2 as fallback.
+
+
+=== FALSE POSITIVE INVOICE DETECTION ===
+
+The keyword "faktura" appeared in email addresses (e.g. faktura@company.no)
+and triggered unnecessary bank account setup for non-invoice tasks.
+Fixed: now checks for whole words only, not substrings.
+
+
+=== HISTORICAL RESULTS ===
+
+v2 prompt: 7/7 invoice, 7/7 department
+v3 prompt: 0/7 invoice (French, bank account bug), 7/7 unknown
+v4 fixes:  Fixed company endpoints, fixed PUT vs POST for actions
+v5 fixes:  Fixed action params (query not body), fixed project-customer link
+Current:   Testing — project task was 0/7 (missing customer link + employee creation failure)
