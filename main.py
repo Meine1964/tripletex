@@ -44,7 +44,7 @@ ABSOLUTE RULES (never violate):
 4. Create entities in dependency order: customer before order, product before orderline, order before invoice.
 5. When the task says "send"/"senden"/"sende"/"enviar"/"envoyer" an invoice, you MUST also call PUT /invoice/{id}/:send with params={"sendType":"EMAIL"}.
 6. Parse the prompt carefully. Extract ALL names, emails, org numbers, amounts, dates, currencies.
-7. After completing ALL steps successfully, call the done tool.
+7. After completing ALL steps successfully, you MUST call the done() tool. NEVER output a text message without calling done(). NEVER ask "would you like me to...". Just call done() immediately after the last step succeeds.
 8. Every 4xx error hurts efficiency. Search for existing data first, look up data before creating.
 9. Reuse IDs from POST responses — do NOT re-fetch things you just created.
 10. ALL action endpoints (path contains /:) use query PARAMS, not JSON body! Always use the "params" field for /:payment, /:send, /:createCreditNote, etc.
@@ -219,30 +219,30 @@ RECOMMENDED approach:
      This creates a new employee with the correct email. If it succeeds, use the new employee's id.
   2. If POST /employee fails ("Brukertype" error or 422): fall back to updating an existing employee:
      a. GET /employee?fields=* to list existing employees.
-     b. Pick ONE employee (preferably NOT the first admin). Note their id and version.
-     c. PUT /employee/{id} with body {"id": X, "version": Y, "firstName": "FIRST", "lastName": "LAST"}
+     b. Pick ONE employee (preferably NOT the first admin, pick the LAST one). Note their id and version.
+     c. YOU MUST DO THIS STEP: PUT /employee/{id} with body {"id": X, "version": Y, "firstName": "FIRST", "lastName": "LAST"}
      CRITICAL: Do NOT include "email" in the PUT body — email CANNOT be changed and will cause a 422 error!
   3. If the task does NOT provide an email: GET existing employees and PUT to update name.
   4. Use the created/updated employee's id for the project manager or other references.
-  CRITICAL: Existing employees will NOT already have the right name! You MUST ALWAYS create a new employee or update an existing one. NEVER assume any existing employee has the correct name — they never do.
+  CRITICAL: You MUST ALWAYS do PUT to update the employee name! Existing employees NEVER have the right name — they ALWAYS have generic names like "Admin NM" or "Testkonto NM". Even if an employee name looks similar to the one in the task, ALWAYS do PUT to ensure correctness. NEVER skip the PUT step!
 
 PROJECT WORKFLOW:
 - Step 1: Create or find the customer first (POST /customer)
 - Step 2: Create or update the employee for project manager:
   If the task provides an email: FIRST try POST /employee with {firstName, lastName, email}.
-  If POST fails (422 "Brukertype" error): GET /employee?fields=*, then PUT /employee/{id} to update name.
+  If POST fails (422 "Brukertype" error): GET /employee?fields=*, then ALWAYS do PUT /employee/{id} to update name.
   CRITICAL: Do NOT include email in PUT body — email is immutable!
-  CRITICAL: NEVER just use an existing employee without verifying/updating their name! Sandbox employees have GENERIC names like "Admin NM".
+  CRITICAL: You MUST ALWAYS do PUT to rename the employee! Sandbox employees ALWAYS have generic names like "Admin NM". NEVER skip PUT!
 - Step 3: POST /project with ALL of these fields:
   * name (required)
-  * number (string — use a UNIQUE random-looking number like "PRJ-8472" or "P9031" to avoid collisions. NEVER use simple numbers like "1", "2", "P001" — they are likely taken!)
+  * number (string — generate a UNIQUE RANDOM number using format "PRJ-" followed by 4 random digits, e.g. "PRJ-3847", "PRJ-6192", "PRJ-7503". Pick digits randomly each time! NEVER reuse examples from this prompt. NEVER use simple numbers like "1", "2", "P001".)
   * projectManager:{id:X} (required)
   * startDate (YYYY-MM-DD, required! Use today's date if not specified)
   * customer:{id:X} (REQUIRED if the task mentions the project is linked/connected to a customer!)
   * endDate (if given)
 - CRITICAL: If the task says project is linked/connected/associated with a customer, you MUST include customer:{id:X}.
 - CRITICAL: startDate is REQUIRED. Always include it.
-- If project number is already taken (422 error), DO NOT try sequential numbers (1,2,3...). Instead pick a much higher random number like "PRJ-7294" or "P9831".
+- If project number is already taken (422 error), pick a completely different random number (new random digits).
 - FIXED-PRICE PROJECT fields: To set a fixed price on a project, use "fixedprice" (ALL LOWERCASE, no camelCase!) and "isFixedPrice": true.
   Example POST/PUT: {"name":"...", "fixedprice": 471400, "isFixedPrice": true, ...}
   CRITICAL: The field is "fixedprice" (lowercase p), NOT "fixedPrice" (camelCase). Using camelCase returns 422 "field doesn't exist".
@@ -255,13 +255,13 @@ Step 1: Create customer.
 
 Step 2: Create the employee (project manager).
   If the task provides an email: FIRST try POST /employee with {firstName, lastName, email}.
-  If POST fails: GET /employee?fields=*, then PUT /employee/{id} with {id, version, firstName, lastName} to update an existing employee's name.
+  If POST fails: GET /employee?fields=*, then ALWAYS do PUT /employee/{id} with {id, version, firstName, lastName} to rename the employee.
   CRITICAL: Do NOT include email in PUT body — email is immutable!
-  CRITICAL: You MUST create or rename an employee to match the name in the task. NEVER just use an existing employee without updating their name!
+  CRITICAL: You MUST ALWAYS do PUT to rename the employee! Sandbox employees NEVER have the right name. NEVER skip PUT!
 
 Step 3: Create the project WITH fixed price fields.
   POST /project with:
-  {"name": "...", "number": "PRJ-8472", "projectManager": {"id": X}, "startDate": "{today}",
+  {"name": "...", "number": "PRJ-XXXX" (random 4 digits), "projectManager": {"id": X}, "startDate": "{today}",
    "customer": {"id": X}, "isFixedPrice": true, "fixedprice": AMOUNT}
   CRITICAL: "fixedprice" is ALL LOWERCASE. "isFixedPrice" has a capital F and P (Boolean).
 
@@ -289,12 +289,12 @@ Step 1: Create customer.
 
 Step 2: Create or update the employee.
   If the task provides an email: FIRST try POST /employee with {firstName, lastName, email}.
-  If POST fails: GET /employee?fields=*, then PUT /employee/{id} with {id, version, firstName, lastName} to update name.
+  If POST fails (422): GET /employee?fields=*, then ALWAYS do PUT /employee/{id} with {id, version, firstName, lastName} to update name.
   CRITICAL: Do NOT include email in PUT body — email cannot be changed.
-  CRITICAL: NEVER just use an existing employee without updating their name!
+  CRITICAL: You MUST do PUT to update the name! Sandbox employees ALWAYS have wrong generic names. NEVER skip the PUT step!
 
 Step 3: Create project.
-  POST /project with name, number, projectManager:{id}, startDate (use today), customer:{id}.
+  POST /project with name, number ("PRJ-" + 4 random digits), projectManager:{id}, startDate (use today), customer:{id}.
 
 Step 4: Look up activities.
   GET /activity — find the activity for the work type. Common activities:
@@ -730,6 +730,14 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         diag["iterations"] = iteration + 1
 
         if not msg.tool_calls:
+            # GPT stopped without calling done() — nudge it to continue or call done()
+            if iteration < 24:
+                print(f"  ⚠ No tool calls — nudging GPT to continue or call done()...", flush=True)
+                messages.append({
+                    "role": "user",
+                    "content": "You must either continue with the next API call or call done() if the task is complete. Do NOT output text without a tool call. What is the next step?"
+                })
+                continue
             print(f"  ✗ No tool calls — LLM stopped. Elapsed: {time.time()-agent_start:.1f}s", flush=True)
             break
 
