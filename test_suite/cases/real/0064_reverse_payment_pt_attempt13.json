@@ -1,0 +1,7 @@
+{
+  "prompt": "O pagamento de Cascata Lda (org. nº 844279892) referente à fatura \"Horas de consultoria\" (41350 NOK sem IVA) foi devolvido pelo banco. Reverta o pagamento para que a fatura volte a mostrar o montante em aberto.",
+  "files": [],
+  "source": "competition_attempt13",
+  "task_type": "reverse_payment",
+  "notes": "From Attempt 13. Portuguese reverse payment. Score 4/8 (50%), check 2 failed because agent used 'Kontant' (cash) payment type instead of 'Betalt til bank' (bank). Task says 'devolvido pelo banco' = returned by bank. Fixed: system prompt now defaults to bank payment type and matches keywords."
+}

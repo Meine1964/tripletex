@@ -1,0 +1,48 @@
+Attempt 13 — Reverse Payment (Portuguese)
+==========================================
+Score: 4/8 (50%) — 2/3 checks passed, 1 check failed
+
+PROMPT:
+  O pagamento de Cascata Lda (org. nr 844279892) referente a fatura
+  "Horas de consultoria" (41350 NOK sem IVA) foi devolvido pelo banco.
+  Reverta o pagamento para que a fatura volte a mostrar o montante em aberto.
+
+  Translation: The payment from Cascata Lda for the invoice "Consulting Hours"
+  (41350 NOK excl. VAT) was returned by the bank. Reverse the payment so the
+  invoice shows the outstanding amount again.
+
+TASK TYPE: Reverse payment (Portuguese)
+PROXY URL: https://tx-proxy-jwanbnu3pq-lz.a.run.app/v2
+FILES: 0
+STATS: 4 iterations, 33992 tokens, 33.0s — VERY EFFICIENT
+
+NOTE: This was deployed with the OLD code (attempt 12 code without our fixes).
+      The deploy was done by manually editing main.py in Cloud Shell,
+      NOT from the latest GitHub code with fixedprice/auto-fixes.
+
+FLOW:
+  [pre] Bank account already ready
+  [1] GET /invoice {invoiceDateFrom:"2000-01-01", invoiceDateTo:"2030-12-31"} -> 200 [1 item]
+      Found invoice id=2147492898, customer Cascata Lda, total=51687.5 (incl VAT)
+  [2] GET /invoice/paymentType -> 200 [2 items]
+      Found "Kontant" id=26679584
+  [3] PUT /invoice/2147492898/:payment {paymentDate:"2026-03-20", paymentTypeId:26679584,
+      paidAmount:-51687.5, paidAmountCurrency:-51687.5} -> 200
+      Negative payment registered to reverse the original payment
+  [4] done()
+
+ANALYSIS:
+  - Agent executed PERFECTLY: 0 errors, 4 iterations, 33s
+  - Found the existing invoice, looked up payment type, reversed with negative amount
+  - Correct calculation: 41350 excl VAT * 1.25 = 51687.5 incl VAT, negated to -51687.5
+  - Score was 4/8 (50%) with check 2 FAILED
+  - Check 1 PASSED, Check 2 FAILED, Check 3 PASSED
+
+WHAT COULD CHECK 2 BE?
+  Possible reasons for check 2 failure:
+  1. The competition may expect a specific payment type (not "Kontant")
+  2. The amount might need to match the original payment method/type
+  3. There may be an additional step needed (e.g., marking invoice as unpaid)
+  4. The payment date might need to match the original payment date
+  5. Perhaps the reversal needs to be the exact original payment amount
+     (the invoice "version: 3" suggests it was already modified/paid)

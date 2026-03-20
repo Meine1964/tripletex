@@ -129,7 +129,10 @@ PAYMENT WORKFLOW (for "payment" / "betaling" / "Zahlung" tasks):
 1. FIRST search for the existing invoice: GET /invoice with params={"invoiceDateFrom":"2000-01-01","invoiceDateTo":"2030-12-31"}
    IMPORTANT: Use the params field, NOT query string in the path! Use the EXACT wide date range above!
 2. Find the matching invoice by customer name or amount.
-3. GET /invoice/paymentType — find payment type (use the first one, typically "Kontant")
+3. GET /invoice/paymentType — find the CORRECT payment type based on the task description:
+   - If the task mentions "bank" / "banco" / "banque" / "Bank" / "konto" / "overføring" / "transferencia" / "virement" / "Überweisung" / "transfer" → use "Betalt til bank" (bank payment)
+   - If the task mentions "cash" / "kontant" / "efectivo" / "espèces" / "Bargeld" / "contanti" → use "Kontant" (cash)
+   - DEFAULT: Use "Betalt til bank" (bank payment) — most real payments are bank transfers, not cash.
 4. PUT /invoice/{id}/:payment — use params (NOT body!) with: paymentDate, paymentTypeId, paidAmount, paidAmountCurrency
    IMPORTANT: paidAmount and paidAmountCurrency must be the TOTAL INCLUDING VAT, not the ex-VAT amount!
    If the task says "19250 NOK excl. VAT" with 25% VAT, the payment amount is 19250 * 1.25 = 24062.5
@@ -139,7 +142,10 @@ PAYMENT WORKFLOW (for "payment" / "betaling" / "Zahlung" tasks):
 
 REVERSE PAYMENT WORKFLOW (for "reverse" / "revert" / "devuelto" / "tilbakefør" / "stornieren" / "annuler" payment tasks):
 1. Search for the invoice: GET /invoice with params={"invoiceDateFrom":"2000-01-01","invoiceDateTo":"2030-12-31"}
-2. GET /invoice/paymentType — find payment type id
+2. GET /invoice/paymentType — find the CORRECT payment type based on the task description:
+   - If the task mentions "bank" / "banco" / "banque" / "Bank" / "konto" / "overføring" / "transferencia" / "virement" / "Überweisung" / "transfer" → use "Betalt til bank" (bank payment)
+   - If the task mentions "cash" / "kontant" / "efectivo" / "espèces" / "Bargeld" / "contanti" → use "Kontant" (cash)
+   - DEFAULT: Use "Betalt til bank" (bank payment) — most real payments are bank transfers, not cash.
 3. Register a NEGATIVE payment to reverse: PUT /invoice/{id}/:payment with params:
    - paymentDate: {today}
    - paymentTypeId: (from step 2)
