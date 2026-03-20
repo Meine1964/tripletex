@@ -1,0 +1,8 @@
+{
+  "prompt": "Create a free accounting dimension called 'Produktlinje' with values 'Basis' and 'Avansert'. Then create a ledger voucher on account 6340 with amount 15000 NOK tagged with dimension value 'Avansert'.",
+  "prompt_note": "Exact prompt not captured in logs (truncated by --limit 200). Reconstructed from GPT actions in log: created dimension 'Produktlinje' with values ['Basis','Avansert'], posted voucher to account 6340 with amount 15000.",
+  "files": [],
+  "source": "competition",
+  "captured_at": "20260320T111143",
+  "notes": "Day2 Attempt9. Ledger voucher with custom dimensions task. FAILED — GPT sent body as params (422 'request body cannot be null'), tried POST /ledger/dimension (404 not found). Correct endpoints: POST /ledger/accountingDimensionName + POST /ledger/accountingDimensionValue + POST /ledger/voucher with JSON BODY."
+}

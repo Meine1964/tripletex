@@ -82,6 +82,11 @@ KEY ENDPOINTS:
 - PUT /company — update company (no ID in path!). Include id + version in body. NOTE: bankAccountNumber is NOT on company — use PUT /ledger/account/{id} instead!
 - GET /ledger/account?isBankAccount=true — find bank accounts. PUT /ledger/account/{id} to set bankAccountNumber.
 - GET/POST /deliveryAddress — delivery addresses
+- POST /incomingInvoice — [BETA] register a supplier/incoming invoice (voucherDate, supplier, invoiceNumber, amount, postings)
+- GET/POST /ledger/voucher — journal entries with postings. POST requires JSON BODY (not params!): {date, description, postings:[...]}
+- POST /ledger/accountingDimensionName — create a free/user-defined accounting dimension
+- POST /ledger/accountingDimensionValue — create a value for a free accounting dimension
+- GET /ledger/accountingDimensionName — list accounting dimension names
 
 INVOICE WORKFLOW (follow EXACT order — do NOT skip steps):
 0. Bank account is set up automatically before you start. If POST /invoice still fails with bank error:
@@ -128,6 +133,49 @@ REVERSE PAYMENT WORKFLOW (for "reverse" / "revert" / "devuelto" / "tilbakefør" 
    IMPORTANT: Use the invoice's "amount" or "amountCurrency" field (total incl. VAT) as the basis, then NEGATE it.
    The amount from the task prompt is usually ex-VAT. Multiply by 1.25 for 25% VAT, then negate.
 
+SALARY / PAYROLL WORKFLOW (for "paie"/"lønn"/"salary"/"Gehalt"/"salario"/"lön"/"payroll" tasks):
+The task will ask you to run payroll for an employee with a base salary and possibly a bonus or other additions.
+
+Step 1: Find the employee.
+  GET /employee?fields=* — look for the employee by name/email. The employee usually already exists.
+  If not found, create with POST /employee (firstName, lastName, email).
+
+Step 2: Look up salary types.
+  GET /salary/type — returns available salary types. Key types:
+  - number "2000" = "Fastlønn" (Fixed salary / base salary)
+  - number "2002" = "Bonus"
+  Note the "id" of each needed type (IDs vary per sandbox).
+
+Step 3: Create the salary transaction with payslip and specifications.
+  POST /salary/transaction with body:
+  {
+    "year": {today_year},
+    "month": CURRENT_MONTH_NUMBER,
+    "payslips": [{
+      "employee": {"id": EMPLOYEE_ID},
+      "specifications": [
+        {"salaryType": {"id": FASTLONN_TYPE_ID}, "rate": BASE_SALARY_AMOUNT, "count": 1},
+        {"salaryType": {"id": BONUS_TYPE_ID}, "rate": BONUS_AMOUNT, "count": 1}
+      ]
+    }]
+  }
+  - "month" is the current month (1-12) from today's date.
+  - "rate" is the salary amount (e.g. 33900 for base salary).
+  - "count" is always 1 for monthly salary/bonus.
+  - Only include bonus specification if the task mentions a bonus.
+
+Step 4: If the inline specifications approach fails with "field doesn't exist" for specifications:
+  a. POST /salary/transaction with just: {"year": Y, "month": M, "payslips": [{"employee": {"id": EMP_ID}}]}
+     This creates a payslip. Get the payslip id from response: value.payslips[0].id
+  b. POST /salary/specification for each salary line:
+     {"payslip": {"id": PAYSLIP_ID}, "salaryType": {"id": TYPE_ID}, "rate": AMOUNT, "count": 1}
+
+Step 5: Call done() when complete.
+
+IMPORTANT: "month" in the salary transaction = the NUMERIC month from today's date ({today}).
+For base salary, use salary type with number "2000" (Fastlønn).
+For bonus, use salary type with number "2002" (Bonus).
+
 EMPLOYEE WORKFLOW:
 - POST /employee with firstName, lastName, email
 - If you get error about "Brukertype" (user type), you MUST do ALL of these steps:
@@ -167,6 +215,86 @@ CUSTOMER WORKFLOW:
 
 DEPARTMENT WORKFLOW:
 - POST /department with name, departmentNumber (string)
+
+SUPPLIER INVOICE / INCOMING INVOICE WORKFLOW (for "supplier invoice"/"leverandørfaktura"/"Eingangsrechnung"/"facture fournisseur"/"factura proveedor"/"incoming invoice"/"received invoice" tasks):
+The task asks you to register an invoice RECEIVED FROM a supplier (not an outgoing invoice to a customer).
+
+Step 1: Create the supplier.
+  POST /supplier with: name, organizationNumber (if given), email (if given), phoneNumber (if given)
+  NOTE: Use /supplier NOT /customer! Suppliers are separate entities.
+
+Step 2: Look up VAT types.
+  GET /ledger/vatType — find the INCOMING/INPUT VAT type for the given percentage.
+  For 25% input VAT: look for name containing "Inngående" (incoming) with percentage=25.
+  Note the "id" — do NOT use the "number" field.
+
+Step 3: Calculate amounts.
+  If the task says "65850 NOK including VAT" with 25% VAT:
+  - Total incl. VAT = 65850
+  - VAT amount = 65850 / 1.25 * 0.25 = 13170
+  - Amount excl. VAT = 65850 - 13170 = 52680
+
+Step 4: Create a ledger voucher to register the supplier invoice.
+  POST /ledger/voucher with JSON BODY (NOT params!):
+  {
+    "date": "{today}",
+    "description": "Supplier invoice INVOICE_NUMBER from SUPPLIER_NAME",
+    "postings": [
+      {
+        "debit": {"account": {"number": EXPENSE_ACCOUNT_NUMBER}, "amount": AMOUNT_EXCL_VAT},
+        "credit": {"account": {"number": 2400}, "amount": TOTAL_INCL_VAT}
+      }
+    ]
+  }
+  NOTE: The exact posting structure may vary. If 422 errors occur, try alternative structures:
+  - Use "account" with {"id": X} instead of {"number": X}
+  - First GET /ledger/account to find the account IDs for the given account numbers
+  - Try flat postings: one debit posting for expense account, one debit posting for VAT (account 2710), one credit posting for supplier (account 2400)
+
+Step 5: If POST /ledger/voucher fails, try POST /incomingInvoice [BETA endpoint]:
+  POST /incomingInvoice with body:
+  {
+    "voucherDate": "{today}",
+    "supplier": {"id": SUPPLIER_ID},
+    "invoiceNumber": "INVOICE_NUMBER",
+    "amount": TOTAL_INCL_VAT,
+    "amountCurrency": TOTAL_INCL_VAT
+  }
+  If that also fails, try different field combinations based on error messages.
+
+IMPORTANT: POST /ledger/voucher uses JSON BODY, not query params! Use the "body" field.
+"Register supplier invoice" / "Eingangsrechnung" / "facture reçue" = incoming invoice, NOT outgoing.
+
+LEDGER VOUCHER / JOURNAL ENTRY WORKFLOW (for "voucher"/"bilag"/"Buchung"/"écriture comptable"/"asiento" tasks):
+The task asks you to create a journal entry / voucher with specific postings.
+
+IMPORTANT: POST /ledger/voucher requires a JSON BODY, NOT query params!
+Always use the "body" field, NEVER the "params" field for this endpoint.
+
+Step 1: If the task involves accounting dimensions (e.g. "Produktlinje", "Avdeling", custom categories):
+  a. Create the dimension name: POST /ledger/accountingDimensionName with body: {"name": "DIMENSION_NAME"}
+  b. Create dimension values: POST /ledger/accountingDimensionValue with body: {"name": "VALUE_NAME", "accountingDimensionName": {"id": DIMENSION_ID}}
+  c. Repeat for each value.
+
+Step 2: Look up ledger accounts if needed.
+  GET /ledger/account — find account IDs for the account numbers mentioned in the task.
+  GET /ledger/vatType — if VAT is involved.
+
+Step 3: Create the voucher.
+  POST /ledger/voucher with BODY (not params!):
+  {
+    "date": "{today}",
+    "description": "Description of the journal entry",
+    "postings": [
+      {"amount": DEBIT_AMOUNT, "amountCurrency": DEBIT_AMOUNT, "account": {"id": DEBIT_ACCOUNT_ID}},
+      {"amount": -CREDIT_AMOUNT, "amountCurrency": -CREDIT_AMOUNT, "account": {"id": CREDIT_ACCOUNT_ID}}
+    ]
+  }
+  NOTE: Debit = positive amount, Credit = negative amount. Postings must balance (sum to zero).
+  If using account NUMBER instead of ID: {"account": {"number": 6340}}
+  If the task specifies a dimension, add to each posting: "accountingDimensionValue": {"id": VALUE_ID}
+
+CRITICAL: POST /ledger/voucher uses JSON BODY! If you get "request body cannot be null" (422), you sent params instead of body. Fix by moving all data to the "body" field.
 
 DATES:
 - Today's date is {today}. USE THIS DATE for invoiceDate, orderDate, deliveryDate, startDate, paymentDate, credit note date.
@@ -481,6 +609,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> None:
     print(f"\n  ⚠ Max iterations reached. Elapsed: {time.time()-agent_start:.1f}s, Tokens: {total_tokens}", flush=True)
 
 
+@app.post("/")
 @app.post("/solve")
 async def solve(request: Request):
     body = await request.json()

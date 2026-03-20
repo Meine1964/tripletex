@@ -1,0 +1,40 @@
+Day2_Attempt10 — PAYMENT TASK (French)
+========================================
+Result: 7/7 (100%) — All checks passed
+Time: 21.3s total (18.5s agent)
+Date: 2026-03-20 12:51 CET (11:51 UTC)
+Endpoint: POST /solve
+
+TASK PROMPT:
+  "Le client Cascade SARL (nº org. 839016778) a une facture impayée de 45450 NOK hors TVA
+   pour "Design web". Enregistrez le paiement intégral de cette facture."
+  (Translation: Client Cascade SARL has an unpaid invoice of 45450 NOK excl. VAT for "Web design".
+   Register full payment of this invoice.)
+
+AGENT EXECUTION: 4 iterations, 25,875 tokens, 18.5s
+
+  Iteration 1 (7.8s):
+    GPT: Identified task as payment registration. Total incl. VAT = 45450 * 1.25 = 56812.5 NOK.
+    API: GET /invoice?invoiceDateFrom=2000-01-01&invoiceDateTo=2030-12-31
+    Result: 200 OK — Found invoice id=2147489326 for Cascade SARL, invoiceDate=2026-03-01, dueDate=2026-03-31
+
+  Iteration 2 (3.9s):
+    GPT: Found invoice. Looking up payment types.
+    API: GET /invoice/paymentType
+    Result: 200 OK — 2 types: Kontant (id=26168367), Betalt til bank (id=26168368)
+
+  Iteration 3 (4.4s):
+    GPT: Selected "Kontant" payment type. Registering payment.
+    API: PUT /invoice/2147489326/:payment
+      params: paymentDate=2026-03-20, paymentTypeId=26168367, paidAmount=56812.5, paidAmountCurrency=56812.5
+    Result: 200 OK — Payment registered on invoice id=2147489326
+
+  Iteration 4:
+    GPT: Called done() — task complete.
+
+KEY OBSERVATIONS:
+  - French language prompt handled correctly
+  - VAT calculation correct: 45450 * 1.25 = 56812.5
+  - Used wide date range to find invoice (good fallback strategy)
+  - Selected "Kontant" payment type (cash) — all checks passed
+  - Clean 4-iteration execution, no errors

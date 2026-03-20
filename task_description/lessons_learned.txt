@@ -136,6 +136,33 @@ Tasks come in 7 languages. Key translations:
 - 3 tiers of difficulty (×1, ×2, ×3 multiplier)
 
 
+=== SALARY / PAYROLL ===
+
+POST /salary/transaction is the main endpoint for running payroll.
+Required fields: year, month, payslips (array).
+
+Payslip structure within transaction:
+  payslips: [{ employee: {id: X}, specifications: [...] }]
+
+Specification fields: salaryType: {id: X}, rate: AMOUNT, count: 1
+
+If inline specifications fail, create transaction first (without specs),
+then POST /salary/specification for each line:
+  { payslip: {id: X}, salaryType: {id: X}, rate: AMOUNT, count: 1 }
+
+Salary types (lookup with GET /salary/type, IDs vary per sandbox):
+  number 2000 = "Fastlønn" (Fixed salary / base salary)
+  number 2002 = "Bonus"
+
+Error "Arbeidsforholdet er ikke knyttet mot en virksomhet" means the
+employee's employment is not linked to a company division. Competition
+sandboxes should have this set up, but persistent dev sandbox may not.
+
+GET /salary/transaction → 403 on persistent sandbox (permission issue)
+POST /salary/specification → 403 on persistent sandbox (permission issue)
+These should work on competition sandboxes with proper permissions.
+
+
 === DEPLOYMENT (Google Cloud Run) ===
 
 Deploy command:
