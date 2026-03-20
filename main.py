@@ -220,8 +220,9 @@ RECOMMENDED approach:
   2. If POST /employee fails ("Brukertype" error or 422): fall back to updating an existing employee:
      a. GET /employee?fields=* to list existing employees.
      b. Pick ONE employee (preferably NOT the first admin, pick the LAST one). Note their id and version.
-     c. YOU MUST DO THIS STEP: PUT /employee/{id} with body {"id": X, "version": Y, "firstName": "FIRST", "lastName": "LAST"}
+     c. YOU MUST DO THIS STEP: PUT /employee/{id} with body {"id": X, "version": Y, "firstName": "FIRST", "lastName": "LAST", "dateOfBirth": "1990-01-01"}
      CRITICAL: Do NOT include "email" in the PUT body — email CANNOT be changed and will cause a 422 error!
+     CRITICAL: You MUST include "dateOfBirth" in the PUT body — if the employee has no dateOfBirth, the API will reject the update!
   3. If the task does NOT provide an email: GET existing employees and PUT to update name.
   4. Use the created/updated employee's id for the project manager or other references.
   CRITICAL: You MUST ALWAYS do PUT to update the employee name! Existing employees NEVER have the right name — they ALWAYS have generic names like "Admin NM" or "Testkonto NM". Even if an employee name looks similar to the one in the task, ALWAYS do PUT to ensure correctness. NEVER skip the PUT step!
@@ -230,8 +231,9 @@ PROJECT WORKFLOW:
 - Step 1: Create or find the customer first (POST /customer)
 - Step 2: Create or update the employee for project manager:
   If the task provides an email: FIRST try POST /employee with {firstName, lastName, email}.
-  If POST fails (422 "Brukertype" error): GET /employee?fields=*, then ALWAYS do PUT /employee/{id} to update name.
+  If POST fails (422 "Brukertype" error): GET /employee?fields=*, then ALWAYS do PUT /employee/{id} with {id, version, firstName, lastName, dateOfBirth: "1990-01-01"} to update name.
   CRITICAL: Do NOT include email in PUT body — email is immutable!
+  CRITICAL: You MUST include dateOfBirth in PUT body — API requires it!
   CRITICAL: You MUST ALWAYS do PUT to rename the employee! Sandbox employees ALWAYS have generic names like "Admin NM". NEVER skip PUT!
 - Step 3: POST /project with ALL of these fields:
   * name (required)
@@ -255,8 +257,9 @@ Step 1: Create customer.
 
 Step 2: Create the employee (project manager).
   If the task provides an email: FIRST try POST /employee with {firstName, lastName, email}.
-  If POST fails: GET /employee?fields=*, then ALWAYS do PUT /employee/{id} with {id, version, firstName, lastName} to rename the employee.
+  If POST fails: GET /employee?fields=*, then ALWAYS do PUT /employee/{id} with {id, version, firstName, lastName, dateOfBirth: "1990-01-01"} to rename the employee.
   CRITICAL: Do NOT include email in PUT body — email is immutable!
+  CRITICAL: You MUST include dateOfBirth in PUT body — API requires it!
   CRITICAL: You MUST ALWAYS do PUT to rename the employee! Sandbox employees NEVER have the right name. NEVER skip PUT!
 
 Step 3: Create the project WITH fixed price fields.
@@ -289,8 +292,9 @@ Step 1: Create customer.
 
 Step 2: Create or update the employee.
   If the task provides an email: FIRST try POST /employee with {firstName, lastName, email}.
-  If POST fails (422): GET /employee?fields=*, then ALWAYS do PUT /employee/{id} with {id, version, firstName, lastName} to update name.
+  If POST fails (422): GET /employee?fields=*, then ALWAYS do PUT /employee/{id} with {id, version, firstName, lastName, dateOfBirth: "1990-01-01"} to update name.
   CRITICAL: Do NOT include email in PUT body — email cannot be changed.
+  CRITICAL: You MUST include dateOfBirth in PUT body — API requires it!
   CRITICAL: You MUST do PUT to update the name! Sandbox employees ALWAYS have wrong generic names. NEVER skip the PUT step!
 
 Step 3: Create project.
@@ -408,17 +412,14 @@ Step 5: If POST /incomingInvoice returns 403 (no permission), fall back to POST 
   - Credit posting on account 2400 MUST include "supplier": {"id": SUPPLIER_ID}.
   - The debit posting should include "vatType": {"id": VAT_TYPE_ID} for the VAT to be calculated.
 
-Step 6: If BOTH fail, try POST /ledger/voucher as last resort (creates journal entry but NOT a supplier invoice entity):
-  POST /ledger/voucher with JSON BODY:
-  {
-    "date": "{today}",
-    "description": "Supplier invoice INVOICE_NUMBER from SUPPLIER_NAME",
-    "postings": [
-      {"row": 1, "date": "{today}", "amount": AMOUNT_EXCL_VAT, "amountCurrency": AMOUNT_EXCL_VAT, "account": {"id": EXPENSE_ACCOUNT_ID}},
-      {"row": 2, "date": "{today}", "amount": VAT_AMOUNT, "amountCurrency": VAT_AMOUNT, "account": {"id": VAT_ACCOUNT_ID_2710}},
-      {"row": 3, "date": "{today}", "amount": -TOTAL_INCL_VAT, "amountCurrency": -TOTAL_INCL_VAT, "account": {"id": SUPPLIER_ACCOUNT_ID_2400}, "supplier": {"id": SUPPLIER_ID}}
-    ]
-  }
+Step 6: If POST /supplierInvoice fails with a validation error, READ the error message carefully and FIX the body. Do NOT fall through to /ledger/voucher unless /supplierInvoice has failed 3+ times with DIFFERENT errors.
+  Common fixes:
+  - "amountGross cannot be null" → you used "amount" instead of "amountGross"
+  - "credit posting missing" → you need BOTH debit (positive) AND credit (negative) postings
+  - "row must be > 0" → rows start at 1, not 0
+  - "supplier is required" → credit posting needs "supplier": {"id": SUPPLIER_ID}
+
+  WARNING: POST /ledger/voucher creates ONLY a journal entry, NOT a supplier invoice entity! The task REQUIRES a supplier invoice. Only use /ledger/voucher if /supplierInvoice is truly impossible (e.g. 500 internal server error).
 
 IMPORTANT: All POST endpoints above use JSON BODY, not query params! Use the "body" field.
 "Register supplier invoice" / "Eingangsrechnung" / "facture reçue" = incoming invoice, NOT outgoing.
@@ -794,11 +795,33 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/customer" and req_body:
                     if "isCustomer" not in req_body:
                         req_body["isCustomer"] = True
-                # Auto-fix: strip email from PUT /employee (email is immutable)
-                if args["method"] == "PUT" and "/employee/" in args["path"] and "employment" not in args["path"] and req_body:
+                # Auto-fix: strip email from PUT /employee (email is immutable) + ensure dateOfBirth
+                is_employee_put = (args["method"] == "PUT" and "/employee/" in args["path"] and "employment" not in args["path"] and req_body)
+                if is_employee_put:
                     req_body.pop("email", None)
-                    employee_renamed = True  # Mark that GPT did the rename
-                    pending_employee_rename = None
+                    if "dateOfBirth" not in req_body:
+                        req_body["dateOfBirth"] = "1990-01-01"
+                        print(f"    │  [fix] added dateOfBirth to PUT /employee", flush=True)
+                # Auto-fix: supplier invoice voucher postings — amount→amountGross
+                if args["method"] == "POST" and args["path"].rstrip("/") == "/supplierInvoice" and req_body:
+                    voucher = req_body.get("voucher", {})
+                    postings = voucher.get("postings", [])
+                    for p in postings:
+                        # Fix amount field names: amount→amountGross, amountCurrency→amountGrossCurrency
+                        if "amount" in p and "amountGross" not in p:
+                            p["amountGross"] = p.pop("amount")
+                            print(f"    │  [fix] supplierInvoice posting: amount → amountGross", flush=True)
+                        if "amountCurrency" in p and "amountGrossCurrency" not in p:
+                            p["amountGrossCurrency"] = p.pop("amountCurrency")
+                            print(f"    │  [fix] supplierInvoice posting: amountCurrency → amountGrossCurrency", flush=True)
+                        # Ensure amountGrossCurrency matches amountGross if missing
+                        if "amountGross" in p and "amountGrossCurrency" not in p:
+                            p["amountGrossCurrency"] = p["amountGross"]
+                            print(f"    │  [fix] supplierInvoice posting: added amountGrossCurrency", flush=True)
+                        # Ensure row is >= 1
+                        if p.get("row", 1) == 0:
+                            p["row"] = postings.index(p) + 1
+                            print(f"    │  [fix] supplierInvoice posting: row 0 → {p['row']}", flush=True)
                 result = call_tripletex(
                     base_url, auth,
                     method=args["method"],
@@ -816,7 +839,21 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     err_detail = f"{call_info}: {msg_text}" if msg_text else call_info
                     diag["errors"].append(err_detail)
 
+                    # Guide GPT to retry /supplierInvoice instead of falling through to /ledger/voucher
+                    if args["method"] == "POST" and args["path"].rstrip("/") == "/supplierInvoice" and sc == 422:
+                        result["_retry_hint"] = ("IMPORTANT: Fix the validation error and retry POST /supplierInvoice. "
+                                                 "Do NOT fall through to POST /ledger/voucher — that only creates a journal entry, "
+                                                 "not a supplier invoice entity. Check: amountGross (not amount), row >= 1, "
+                                                 "date on each posting, supplier on credit posting.")
+                        print(f"    │  [hint] injected retry guidance for /supplierInvoice", flush=True)
+
                 # Track employee rename state
+                # PUT /employee succeeded → mark rename done
+                if is_employee_put and sc < 400:
+                    employee_renamed = True
+                    pending_employee_rename = None
+                    print(f"    │  [track] employee renamed successfully via PUT", flush=True)
+
                 # Step 1: POST /employee failed → save desired name
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/employee" and sc >= 400 and req_body:
                     fn = req_body.get("firstName", "")
@@ -857,6 +894,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             "version": emp_ver,
                             "firstName": pending_employee_rename["firstName"],
                             "lastName": pending_employee_rename["lastName"],
+                            "dateOfBirth": "1990-01-01",
                         }
                         print(f"    │  [auto-fix] GPT skipped PUT /employee — auto-renaming employee {emp_id} to {pending_employee_rename['firstName']} {pending_employee_rename['lastName']}", flush=True)
                         rename_result = call_tripletex(base_url, auth, "PUT", f"/employee/{emp_id}", body=put_body)
