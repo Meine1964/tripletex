@@ -649,6 +649,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     agent_start = time.time()
     diag = {"iterations": 0, "api_calls": [], "errors": [], "tokens": 0, "done": False}
 
+    # Track employee rename state: when POST /employee fails, we need to PUT to rename
+    pending_employee_rename = None  # {"firstName": ..., "lastName": ...} if rename needed
+    employee_renamed = False  # True once PUT /employee has been done
+
     # Pre-check: set bank account for invoice-related tasks (also credit note and payment tasks need invoices)
     prompt_lower = prompt.lower()
     invoice_keywords = ["faktura", "invoice", "rechnung", "factura", "facture", "fatura",
@@ -776,7 +780,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             break
                 # Auto-fix: reject POST without body (except for action endpoints)
                 if args["method"] == "POST" and not req_body and '/:' not in args["path"]:
-                    err_msg = f"POST {args['path']} requires a JSON body. You sent no body. Please retry with the correct body field."
+                    err_msg = (f"ERROR: POST {args['path']} requires a JSON body but you sent none. "
+                               f"You MUST include a 'body' field with the data. "
+                               f"Example: tripletex_api(method='POST', path='{args['path']}', body={{...}})")
                     print(f"    │  [fix] blocked POST without body: {args['path']}", flush=True)
                     messages.append({
                         "role": "tool",
@@ -791,6 +797,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 # Auto-fix: strip email from PUT /employee (email is immutable)
                 if args["method"] == "PUT" and "/employee/" in args["path"] and "employment" not in args["path"] and req_body:
                     req_body.pop("email", None)
+                    employee_renamed = True  # Mark that GPT did the rename
+                    pending_employee_rename = None
                 result = call_tripletex(
                     base_url, auth,
                     method=args["method"],
@@ -807,6 +815,59 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     msg_text = "; ".join(m.get("message", "") for m in val_msgs) if val_msgs else ""
                     err_detail = f"{call_info}: {msg_text}" if msg_text else call_info
                     diag["errors"].append(err_detail)
+
+                # Track employee rename state
+                # Step 1: POST /employee failed → save desired name
+                if args["method"] == "POST" and args["path"].rstrip("/") == "/employee" and sc >= 400 and req_body:
+                    fn = req_body.get("firstName", "")
+                    ln = req_body.get("lastName", "")
+                    if fn and ln:
+                        pending_employee_rename = {"firstName": fn, "lastName": ln}
+                        employee_renamed = False
+                        print(f"    │  [track] employee rename pending: {fn} {ln}", flush=True)
+                # Step 1b: POST /employee succeeded → no rename needed
+                if args["method"] == "POST" and args["path"].rstrip("/") == "/employee" and sc < 400:
+                    pending_employee_rename = None
+                    employee_renamed = True
+
+                # Step 2: GPT is about to use employee without renaming — auto-rename
+                # Detect: GPT calls POST /project while rename is pending
+                if (pending_employee_rename and not employee_renamed
+                        and args["method"] == "POST"
+                        and args["path"].rstrip("/") in ("/project", "/timesheet/entry", "/travelExpense", "/salary/transaction")):
+                    # Find the last GET /employee response to get employee id/version
+                    emp_data = None
+                    for prev_msg in reversed(messages):
+                        if isinstance(prev_msg, dict) and prev_msg.get("role") == "tool":
+                            try:
+                                content = json.loads(prev_msg["content"])
+                                if isinstance(content.get("values"), list) and len(content["values"]) > 0:
+                                    first_emp = content["values"][0]
+                                    if "firstName" in first_emp:
+                                        # Pick last employee (not first admin)
+                                        emp_data = content["values"][-1]
+                                        break
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                    if emp_data and "id" in emp_data:
+                        emp_id = emp_data["id"]
+                        emp_ver = emp_data.get("version", 0)
+                        put_body = {
+                            "id": emp_id,
+                            "version": emp_ver,
+                            "firstName": pending_employee_rename["firstName"],
+                            "lastName": pending_employee_rename["lastName"],
+                        }
+                        print(f"    │  [auto-fix] GPT skipped PUT /employee — auto-renaming employee {emp_id} to {pending_employee_rename['firstName']} {pending_employee_rename['lastName']}", flush=True)
+                        rename_result = call_tripletex(base_url, auth, "PUT", f"/employee/{emp_id}", body=put_body)
+                        rename_sc = rename_result.get("_status_code", 200)
+                        if rename_sc < 400:
+                            employee_renamed = True
+                            pending_employee_rename = None
+                            print(f"    │  [auto-fix] employee renamed successfully", flush=True)
+                        else:
+                            print(f"    │  [auto-fix] employee rename failed: {rename_sc}", flush=True)
+
                 result_str = json.dumps(result, ensure_ascii=False)
                 # Log response data (truncated for readability)
                 preview = result_str[:400] + "…" if len(result_str) > 400 else result_str
