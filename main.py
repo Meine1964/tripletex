@@ -201,21 +201,28 @@ For base salary, use salary type with number "2000" (Fastlønn).
 For bonus, use salary type with number "2002" (Bonus).
 
 EMPLOYEE WORKFLOW:
-IMPORTANT: The sandbox usually has exactly 1 admin employee. POST /employee often fails with "Brukertype" error.
-RECOMMENDED approach — always do this:
-  1. FIRST: GET /employee?fields=* to see if an employee already exists.
-  2. If an employee exists: PUT /employee/{id} with body {id, version, firstName, lastName} to update their name.
+IMPORTANT: The sandbox has 1-2 admin employees with GENERIC names like "Admin NM". They are NEVER the person mentioned in the task!
+When the task mentions a person by name (e.g. "João Almeida (joao.almeida@example.org)"), you MUST create or update an employee with that exact name.
+
+RECOMMENDED approach:
+  1. If the task provides an EMAIL for the person: FIRST try POST /employee with {firstName, lastName, email}.
+     This creates a new employee with the correct email. If it succeeds, use the new employee's id.
+  2. If POST /employee fails ("Brukertype" error or 422): fall back to updating an existing employee:
+     a. GET /employee?fields=* to list existing employees.
+     b. Pick ONE employee (preferably NOT the first admin). Note their id and version.
+     c. PUT /employee/{id} with body {"id": X, "version": Y, "firstName": "FIRST", "lastName": "LAST"}
      CRITICAL: Do NOT include "email" in the PUT body — email CANNOT be changed and will cause a 422 error!
-  3. If no employee exists: POST /employee with {firstName, lastName, email}.
-  4. Use that employee's id for the project manager or other references.
-  CRITICAL: The admin employee will NOT already have the right name! You MUST ALWAYS update firstName and lastName with PUT. Never assume it matches — it never does.
+  3. If the task does NOT provide an email: GET existing employees and PUT to update name.
+  4. Use the created/updated employee's id for the project manager or other references.
+  CRITICAL: Existing employees will NOT already have the right name! You MUST ALWAYS create a new employee or update an existing one. NEVER assume any existing employee has the correct name — they never do.
 
 PROJECT WORKFLOW:
 - Step 1: Create or find the customer first (POST /customer)
-- Step 2: GET /employee?fields=* FIRST to find existing employee. Then PUT /employee/{id} to update firstName and lastName.
-  If no employee exists, POST /employee (firstName, lastName, email). If that fails with "Brukertype" error:
-  a. GET /employee?fields=* to find the admin
-  b. PUT /employee/{adminId} to update firstName, lastName (do NOT include email in PUT body!)
+- Step 2: Create or update the employee for project manager:
+  If the task provides an email: FIRST try POST /employee with {firstName, lastName, email}.
+  If POST fails (422 "Brukertype" error): GET /employee?fields=*, then PUT /employee/{id} to update name.
+  CRITICAL: Do NOT include email in PUT body — email is immutable!
+  CRITICAL: NEVER just use an existing employee without verifying/updating their name! Sandbox employees have GENERIC names like "Admin NM".
 - Step 3: POST /project with ALL of these fields:
   * name (required)
   * number (string — use a UNIQUE random-looking number like "PRJ-8472" or "P9031" to avoid collisions. NEVER use simple numbers like "1", "2", "P001" — they are likely taken!)
@@ -236,9 +243,11 @@ The task asks you to create a project with a fixed price and then invoice a perc
 Step 1: Create customer.
   POST /customer with name, isCustomer:true, organizationNumber.
 
-Step 2: Find or create employee (project manager).
-  GET /employee?fields=* — PUT to update name, or POST if none exists.
-  CRITICAL: Do NOT include email in PUT body.
+Step 2: Create the employee (project manager).
+  If the task provides an email: FIRST try POST /employee with {firstName, lastName, email}.
+  If POST fails: GET /employee?fields=*, then PUT /employee/{id} with {id, version, firstName, lastName} to update an existing employee's name.
+  CRITICAL: Do NOT include email in PUT body — email is immutable!
+  CRITICAL: You MUST create or rename an employee to match the name in the task. NEVER just use an existing employee without updating their name!
 
 Step 3: Create the project WITH fixed price fields.
   POST /project with:
@@ -268,9 +277,11 @@ The task asks you to register time entries on a project activity and then create
 Step 1: Create customer.
   POST /customer with name, isCustomer:true, organizationNumber.
 
-Step 2: Find or create the employee.
-  GET /employee?fields=* — if found, PUT to update name. If not, POST /employee.
+Step 2: Create or update the employee.
+  If the task provides an email: FIRST try POST /employee with {firstName, lastName, email}.
+  If POST fails: GET /employee?fields=*, then PUT /employee/{id} with {id, version, firstName, lastName} to update name.
   CRITICAL: Do NOT include email in PUT body — email cannot be changed.
+  CRITICAL: NEVER just use an existing employee without updating their name!
 
 Step 3: Create project.
   POST /project with name, number, projectManager:{id}, startDate (use today), customer:{id}.
@@ -737,11 +748,14 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 return diag
 
             if name == "tripletex_api":
-                # Auto-fix: GPT sometimes uses "requestBody" instead of "body"
+                # Auto-fix: GPT sometimes uses wrong field names instead of "body"
                 req_body = args.get("body")
-                if not req_body and args.get("requestBody"):
-                    req_body = args.pop("requestBody")
-                    print(f"    │  [fix] moved requestBody → body", flush=True)
+                if not req_body:
+                    for alt in ("requestBody", "data", "json_body", "json", "payload"):
+                        if args.get(alt):
+                            req_body = args.pop(alt)
+                            print(f"    │  [fix] moved {alt} → body", flush=True)
+                            break
                 # Auto-fix: ensure isCustomer:true on POST /customer
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/customer" and req_body:
                     if "isCustomer" not in req_body:
