@@ -27,7 +27,16 @@ HOWEVER: For credit note and payment tasks, the sandbox MAY ALREADY CONTAIN the 
 
 ABSOLUTE RULES (never violate):
 1. NEVER call done() unless the task is FULLY completed successfully. If you hit an error, FIX it and retry.
-2. NEVER guess vatType IDs. Your VERY FIRST API call for invoice/product tasks MUST be GET /ledger/vatType. Wait for the result, find the correct id (for 25% outgoing: look for "Utgående" in name), THEN use that id. NEVER use id=3 or any hardcoded id. Wait for the vatType response BEFORE creating any product.
+2. NEVER guess vatType IDs. Your VERY FIRST API call for invoice/product tasks MUST be GET /ledger/vatType. Wait for the result, then select the correct id.
+   - For PRODUCTS (outgoing/sales): ONLY use types where name contains "Utgående" (Norwegian for outgoing). NEVER use types with "Inngående" (incoming) for products.
+   - For 25% outgoing: look for name "Utgående avgift, høy sats" (number "3")
+   - For 15% outgoing: look for name "Utgående avgift, middels sats" (number "31")
+   - For 12% outgoing: look for name "Utgående avgift, lav sats" (number "32")
+   - For 0% outgoing: look for name containing "Utgående" and "fri" (number "5" or "6")
+   - For SUPPLIER INVOICES (incoming/purchase): use types where name contains "Inngående" at the needed percentage.
+   - IMPORTANT: Use the "id" field from the response, NOT the "number" field!
+   - If you get "Ugyldig mva-kode" after selecting a VAT type, it means that specific type is not valid. Try the NEXT matching type at the same percentage. There may be multiple types at the same rate.
+   - NEVER use id=3 or any hardcoded id. Wait for the vatType response BEFORE creating any product.
 3. Only make ONE tool call at a time. NEVER make multiple tool calls in a single response. Always wait for the result before making the next call.
 4. Create entities in dependency order: customer before order, product before orderline, order before invoice.
 5. When the task says "send"/"senden"/"sende"/"enviar"/"envoyer" an invoice, you MUST also call PUT /invoice/{id}/:send with params={"sendType":"EMAIL"}.
@@ -62,6 +71,8 @@ KEY ENDPOINTS:
 - GET/POST /supplier — name, email, isSupplier:true, organizationNumber, phoneNumber (SEPARATE endpoint from /customer!)
 - PUT /supplier/{id} — update supplier
 - GET/POST /product — name, number, priceExcludingVatCurrency, vatType:{id:X} (do NOT set costExcludingVatCurrency)
+  If vatType gives "Ugyldig mva-kode" error, the sandbox may not have VAT configured. In that case, create the product WITHOUT vatType — just {name, priceExcludingVatCurrency}. The product will still work for invoices.
+  For sandboxes WITH VAT: Products need OUTGOING vatType. Use types with name containing "Utg\u00e5ende".
 - GET /ledger/vatType — MUST call before creating products
 - GET/POST /order — customer:{id:X}, deliveryDate, orderDate
 - POST /order/orderline — order:{id:X}, product:{id:X}, count
@@ -72,8 +83,12 @@ KEY ENDPOINTS:
 - PUT /invoice/{id}/:createCreditNote — use params (NOT body). NOTE: PUT not POST!
 - IMPORTANT: ALL action endpoints (path contains /:) use query PARAMS, not JSON body! Use the "params" field, not "body".
 - GET/POST /project — name, number (string), projectManager:{id:X}, startDate, endDate, customer:{id:X} (link to customer!)
+  Fixed-price fields: "fixedprice" (ALL LOWERCASE!) = amount, "isFixedPrice" = true/false. Do NOT use "fixedPrice" (camelCase)!
 - GET/POST /department — name, departmentNumber (string)
 - GET/POST/DELETE /travelExpense — employee:{id:X}, title, date
+- GET /activity — list available activities (e.g. "Fakturerbart arbeid", "Administrasjon")
+- GET/POST /timesheet/entry — time entries. GET needs dateFrom+dateTo params. POST: {employee:{id}, project:{id}, activity:{id}, date, hours, comment}
+- GET/POST /project/hourlyRates — hourly rates per project. GET needs projectId param.
 - GET/POST/DELETE /ledger/voucher — journal entries with postings
 - GET /ledger/account — chart of accounts
 - GET/POST /contact — firstName, lastName, email, customer:{id:X}
@@ -84,8 +99,8 @@ KEY ENDPOINTS:
 - GET/POST /deliveryAddress — delivery addresses
 - POST /incomingInvoice — [BETA] register a supplier/incoming invoice (voucherDate, supplier, invoiceNumber, amount, postings)
 - GET/POST /ledger/voucher — journal entries with postings. POST requires JSON BODY (not params!): {date, description, postings:[...]}
-- POST /ledger/accountingDimensionName — create a free/user-defined accounting dimension
-- POST /ledger/accountingDimensionValue — create a value for a free accounting dimension
+- POST /ledger/accountingDimensionName — create a free/user-defined accounting dimension. Field: {\"dimensionName\": \"DIM_NAME\"} (NOT \"name\"!)
+- POST /ledger/accountingDimensionValue — create a value. Body: {\"displayName\": \"VALUE\"}, pass ?dimensionNameId=ID as query param
 - GET /ledger/accountingDimensionName — list accounting dimension names
 
 INVOICE WORKFLOW (follow EXACT order — do NOT skip steps):
@@ -137,8 +152,9 @@ SALARY / PAYROLL WORKFLOW (for "paie"/"lønn"/"salary"/"Gehalt"/"salario"/"lön"
 The task will ask you to run payroll for an employee with a base salary and possibly a bonus or other additions.
 
 Step 1: Find the employee.
-  GET /employee?fields=* — look for the employee by name/email. The employee usually already exists.
+  GET /employee?fields=* — the employee usually already exists in the sandbox. Update their name if needed.
   If not found, create with POST /employee (firstName, lastName, email).
+  IMPORTANT: If POST /employee fails with "Brukertype" error, GET the existing employee and PUT to update name.
 
 Step 2: Look up salary types.
   GET /salary/type — returns available salary types. Key types:
@@ -146,7 +162,18 @@ Step 2: Look up salary types.
   - number "2002" = "Bonus"
   Note the "id" of each needed type (IDs vary per sandbox).
 
-Step 3: Create the salary transaction with payslip and specifications.
+Step 3: Create the salary transaction (2-step approach — MORE RELIABLE):
+  a. POST /salary/transaction with body:
+     {"year": {today_year}, "month": CURRENT_MONTH_NUMBER, "payslips": [{"employee": {"id": EMPLOYEE_ID}}]}
+     This creates a payslip. Get the payslip id from response: value.payslips[0].id
+  b. POST /salary/specification for EACH salary line:
+     {"payslip": {"id": PAYSLIP_ID}, "salaryType": {"id": TYPE_ID}, "rate": AMOUNT, "count": 1}
+  - "month" is the current month (1-12) from today's date.
+  - "rate" is the salary amount (e.g. 33900 for base salary).
+  - "count" is always 1 for monthly salary/bonus.
+  - Create one specification for base salary, one for bonus (if applicable).
+
+Step 4: If the 2-step approach fails, try inline specifications:
   POST /salary/transaction with body:
   {
     "year": {today_year},
@@ -159,16 +186,6 @@ Step 3: Create the salary transaction with payslip and specifications.
       ]
     }]
   }
-  - "month" is the current month (1-12) from today's date.
-  - "rate" is the salary amount (e.g. 33900 for base salary).
-  - "count" is always 1 for monthly salary/bonus.
-  - Only include bonus specification if the task mentions a bonus.
-
-Step 4: If the inline specifications approach fails with "field doesn't exist" for specifications:
-  a. POST /salary/transaction with just: {"year": Y, "month": M, "payslips": [{"employee": {"id": EMP_ID}}]}
-     This creates a payslip. Get the payslip id from response: value.payslips[0].id
-  b. POST /salary/specification for each salary line:
-     {"payslip": {"id": PAYSLIP_ID}, "salaryType": {"id": TYPE_ID}, "rate": AMOUNT, "count": 1}
 
 Step 5: Call done() when complete.
 
@@ -177,31 +194,103 @@ For base salary, use salary type with number "2000" (Fastlønn).
 For bonus, use salary type with number "2002" (Bonus).
 
 EMPLOYEE WORKFLOW:
-- POST /employee with firstName, lastName, email
-- If you get error about "Brukertype" (user type), you MUST do ALL of these steps:
-  1. GET /employee?fields=* to find the existing admin employee (get their id and version)
-  2. PUT /employee/{id} with body {id, version, firstName:"REQUIRED_FIRST_NAME", lastName:"REQUIRED_LAST_NAME", email:"REQUIRED_EMAIL"} — you MUST set the names and email from the task!
-  3. Use that employee's id for the project manager or other references
-  CRITICAL: The admin employee will NOT already have the right name! You MUST ALWAYS update firstName, lastName, and email with PUT. Never assume it matches — it never does.
+IMPORTANT: The sandbox usually has exactly 1 admin employee. POST /employee often fails with "Brukertype" error.
+RECOMMENDED approach — always do this:
+  1. FIRST: GET /employee?fields=* to see if an employee already exists.
+  2. If an employee exists: PUT /employee/{id} with body {id, version, firstName, lastName} to update their name.
+     CRITICAL: Do NOT include "email" in the PUT body — email CANNOT be changed and will cause a 422 error!
+  3. If no employee exists: POST /employee with {firstName, lastName, email}.
+  4. Use that employee's id for the project manager or other references.
+  CRITICAL: The admin employee will NOT already have the right name! You MUST ALWAYS update firstName and lastName with PUT. Never assume it matches — it never does.
 
 PROJECT WORKFLOW:
 - Step 1: Create or find the customer first (POST /customer)
-- Step 2: Create the project manager employee (POST /employee). If that fails with "Brukertype" error:
+- Step 2: GET /employee?fields=* FIRST to find existing employee. Then PUT /employee/{id} to update firstName and lastName.
+  If no employee exists, POST /employee (firstName, lastName, email). If that fails with "Brukertype" error:
   a. GET /employee?fields=* to find the admin
-  b. PUT /employee/{adminId} to update firstName, lastName, email to match the required project manager
+  b. PUT /employee/{adminId} to update firstName, lastName (do NOT include email in PUT body!)
 - Step 3: POST /project with ALL of these fields:
   * name (required)
-  * number (string like "1" or "P001", required)
+  * number (string — use a UNIQUE random-looking number like "PRJ-8472" or "P9031" to avoid collisions. NEVER use simple numbers like "1", "2", "P001" — they are likely taken!)
   * projectManager:{id:X} (required)
   * startDate (YYYY-MM-DD, required! Use today's date if not specified)
   * customer:{id:X} (REQUIRED if the task mentions the project is linked/connected to a customer!)
   * endDate (if given)
 - CRITICAL: If the task says project is linked/connected/associated with a customer, you MUST include customer:{id:X}.
 - CRITICAL: startDate is REQUIRED. Always include it.
+- If project number is already taken (422 error), DO NOT try sequential numbers (1,2,3...). Instead pick a much higher random number like "PRJ-7294" or "P9831".
+- FIXED-PRICE PROJECT fields: To set a fixed price on a project, use "fixedprice" (ALL LOWERCASE, no camelCase!) and "isFixedPrice": true.
+  Example POST/PUT: {"name":"...", "fixedprice": 471400, "isFixedPrice": true, ...}
+  CRITICAL: The field is "fixedprice" (lowercase p), NOT "fixedPrice" (camelCase). Using camelCase returns 422 "field doesn't exist".
+
+FIXED-PRICE PROJECT + MILESTONE INVOICE WORKFLOW (for "fixed price"/"fastpris"/"Festpreis"/"precio fijo"/"prix fixe" + "milestone"/"milepæl" tasks):
+The task asks you to create a project with a fixed price and then invoice a percentage as a milestone payment.
+
+Step 1: Create customer.
+  POST /customer with name, isCustomer:true, organizationNumber.
+
+Step 2: Find or create employee (project manager).
+  GET /employee?fields=* — PUT to update name, or POST if none exists.
+  CRITICAL: Do NOT include email in PUT body.
+
+Step 3: Create the project WITH fixed price fields.
+  POST /project with:
+  {"name": "...", "number": "PRJ-8472", "projectManager": {"id": X}, "startDate": "{today}",
+   "customer": {"id": X}, "isFixedPrice": true, "fixedprice": AMOUNT}
+  CRITICAL: "fixedprice" is ALL LOWERCASE. "isFixedPrice" has a capital F and P (Boolean).
+
+Step 4: Create the milestone invoice.
+  Calculate milestone amount: fixedprice * (percentage / 100).
+  Example: 25% of 471400 = 117850 NOK.
+  a. GET /ledger/vatType — find outgoing 25% VAT type.
+  b. POST /product — name like "Milestone Payment - PROJECT_NAME", priceExcludingVatCurrency = milestone amount, vatType:{id}.
+  c. POST /order — customer:{id}, orderDate, deliveryDate, project:{id}.
+  d. POST /order/orderline — order:{id}, product:{id}, count:1.
+  e. POST /invoice — invoiceDate, invoiceDueDate, orders:[{id}].
+  f. If task says "send": PUT /invoice/{id}/:send with params={"sendType":"EMAIL"}.
+
+Step 5: Call done().
 
 TRAVEL EXPENSE WORKFLOW:
 - GET /employee or create one
 - POST /travelExpense with employee:{id:X}, title, date
+
+PROJECT INVOICE / TIME REGISTRATION WORKFLOW (for "register hours"/"registre horas"/"enregistrer heures"/"Stunden erfassen" + "generate project invoice"/"genere faktura" tasks):
+The task asks you to register time entries on a project activity and then create an invoice.
+
+Step 1: Create customer.
+  POST /customer with name, isCustomer:true, organizationNumber.
+
+Step 2: Find or create the employee.
+  GET /employee?fields=* — if found, PUT to update name. If not, POST /employee.
+  CRITICAL: Do NOT include email in PUT body — email cannot be changed.
+
+Step 3: Create project.
+  POST /project with name, number, projectManager:{id}, startDate (use today), customer:{id}.
+
+Step 4: Look up activities.
+  GET /activity — find the activity for the work type. Common activities:
+  - "Fakturerbart arbeid" = billable work (use this for consulting/development hours)
+  - "Administrasjon" = administration
+  - "Prosjektadministrasjon" = project administration
+  Use the activity whose name best matches the task description.
+
+Step 5: Register time entries.
+  POST /timesheet/entry with body:
+  {"employee": {"id": EMP_ID}, "project": {"id": PROJ_ID}, "activity": {"id": ACTIVITY_ID}, "date": "{today}", "hours": HOURS, "comment": "DESCRIPTION"}
+  This registers the worked hours on the project.
+
+Step 6: Create the invoice via order chain.
+  a. GET /ledger/vatType — find outgoing VAT type (25% "Utgående"). If no VAT works, skip vatType.
+  b. POST /product — name based on activity, priceExcludingVatCurrency = hourly rate, vatType:{id}
+  c. POST /order — customer:{id}, orderDate, deliveryDate, project:{id}
+  d. POST /order/orderline — order:{id}, product:{id}, count = number of hours
+  e. POST /invoice — invoiceDate, invoiceDueDate, orders:[{id}]
+
+Step 7: Call done().
+
+IMPORTANT: The endpoint is /timesheet/entry (NOT /timeEntries, NOT /time/timeEntry, NOT /project/projectActivities).
+"Registre horas" (ES) = "Enregistrer les heures" (FR) = "Register timer" (NO) = "Register hours" (EN) = register time entries.
 
 SUPPLIER WORKFLOW:
 - IMPORTANT: Use POST /supplier (NOT POST /customer with isSupplier:true!)
@@ -235,21 +324,22 @@ Step 3: Calculate amounts.
   - Amount excl. VAT = 65850 - 13170 = 52680
 
 Step 4: Create a ledger voucher to register the supplier invoice.
+  First: GET /ledger/account to look up the account IDs for the account numbers you need.
   POST /ledger/voucher with JSON BODY (NOT params!):
   {
     "date": "{today}",
     "description": "Supplier invoice INVOICE_NUMBER from SUPPLIER_NAME",
     "postings": [
-      {
-        "debit": {"account": {"number": EXPENSE_ACCOUNT_NUMBER}, "amount": AMOUNT_EXCL_VAT},
-        "credit": {"account": {"number": 2400}, "amount": TOTAL_INCL_VAT}
-      }
+      {"row": 1, "date": "{today}", "amount": AMOUNT_EXCL_VAT, "amountCurrency": AMOUNT_EXCL_VAT, "account": {"id": EXPENSE_ACCOUNT_ID}},
+      {"row": 2, "date": "{today}", "amount": VAT_AMOUNT, "amountCurrency": VAT_AMOUNT, "account": {"id": VAT_ACCOUNT_ID_2710}},
+      {"row": 3, "date": "{today}", "amount": -TOTAL_INCL_VAT, "amountCurrency": -TOTAL_INCL_VAT, "account": {"id": SUPPLIER_ACCOUNT_ID_2400}}
     ]
   }
-  NOTE: The exact posting structure may vary. If 422 errors occur, try alternative structures:
-  - Use "account" with {"id": X} instead of {"number": X}
-  - First GET /ledger/account to find the account IDs for the given account numbers
-  - Try flat postings: one debit posting for expense account, one debit posting for VAT (account 2710), one credit posting for supplier (account 2400)
+  CRITICAL POSTING RULES:
+  - Each posting MUST have "row" field: 1, 2, 3... (starting from 1, NOT 0! Row 0 is reserved for system-generated entries)
+  - Each posting MUST have "date" field
+  - Debit = positive, Credit = negative. Postings MUST sum to zero.
+  - ALWAYS look up account IDs with GET /ledger/account first. Use {"id": X} not {"number": X}.
 
 Step 5: If POST /ledger/voucher fails, try POST /incomingInvoice [BETA endpoint]:
   POST /incomingInvoice with body:
@@ -272,9 +362,15 @@ IMPORTANT: POST /ledger/voucher requires a JSON BODY, NOT query params!
 Always use the "body" field, NEVER the "params" field for this endpoint.
 
 Step 1: If the task involves accounting dimensions (e.g. "Produktlinje", "Avdeling", custom categories):
-  a. Create the dimension name: POST /ledger/accountingDimensionName with body: {"name": "DIMENSION_NAME"}
-  b. Create dimension values: POST /ledger/accountingDimensionValue with body: {"name": "VALUE_NAME", "accountingDimensionName": {"id": DIMENSION_ID}}
-  c. Repeat for each value.
+  a. FIRST: GET /ledger/accountingDimensionName to see what dimension names already exist.
+  b. If the needed dimension already exists, use its id. If not, create it:
+     POST /ledger/accountingDimensionName with body: {"dimensionName": "DIMENSION_NAME"}
+     CRITICAL: The field is "dimensionName", NOT "name"!
+  c. Create dimension values: POST /ledger/accountingDimensionValue with body: {"displayName": "VALUE_NAME"}
+     Pass the parent dimension as a QUERY PARAMETER: ?dimensionNameId=DIMENSION_ID
+     Example: POST /ledger/accountingDimensionValue?dimensionNameId=822 with body {"displayName": "Basis"}
+     CRITICAL: The value field is "displayName", NOT "name"! The parent link is a query param, NOT in the body!
+  d. If dimension creation keeps failing after 3 attempts, SKIP dimensions and create the voucher without them.
 
 Step 2: Look up ledger accounts if needed.
   GET /ledger/account — find account IDs for the account numbers mentioned in the task.
@@ -286,13 +382,16 @@ Step 3: Create the voucher.
     "date": "{today}",
     "description": "Description of the journal entry",
     "postings": [
-      {"amount": DEBIT_AMOUNT, "amountCurrency": DEBIT_AMOUNT, "account": {"id": DEBIT_ACCOUNT_ID}},
-      {"amount": -CREDIT_AMOUNT, "amountCurrency": -CREDIT_AMOUNT, "account": {"id": CREDIT_ACCOUNT_ID}}
+      {"row": 1, "date": "{today}", "amount": DEBIT_AMOUNT, "amountCurrency": DEBIT_AMOUNT, "account": {"id": DEBIT_ACCOUNT_ID}},
+      {"row": 2, "date": "{today}", "amount": -CREDIT_AMOUNT, "amountCurrency": -CREDIT_AMOUNT, "account": {"id": CREDIT_ACCOUNT_ID}}
     ]
   }
-  NOTE: Debit = positive amount, Credit = negative amount. Postings must balance (sum to zero).
-  If using account NUMBER instead of ID: {"account": {"number": 6340}}
-  If the task specifies a dimension, add to each posting: "accountingDimensionValue": {"id": VALUE_ID}
+  CRITICAL POSTING RULES:
+  - Each posting MUST have a "row" field: 1, 2, 3... (starting from 1, NOT 0! Row 0 is reserved for system-generated entries)
+  - Each posting MUST have a "date" field matching the voucher date
+  - Debit = positive amount, Credit = negative amount. Postings MUST sum to zero.
+  - Use account {"id": X} (look up IDs first with GET /ledger/account)
+  - If the task specifies a dimension, add to each posting: "accountingDimensionValue": {"id": VALUE_ID}
 
 CRITICAL: POST /ledger/voucher uses JSON BODY! If you get "request body cannot be null" (422), you sent params instead of body. Fix by moving all data to the "body" field.
 
@@ -478,8 +577,9 @@ def ensure_bank_account(base_url: str, auth: tuple) -> str:
         return "FAILED"
 
 
-def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> None:
+def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     agent_start = time.time()
+    diag = {"iterations": 0, "api_calls": [], "errors": [], "tokens": 0, "done": False}
 
     # Pre-check: set bank account for invoice-related tasks (also credit note and payment tasks need invoices)
     prompt_lower = prompt.lower()
@@ -531,6 +631,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> None:
             )
         except Exception as e:
             print(f"  ⚠ OpenAI error: {e} — retrying in 2s...", flush=True)
+            diag["errors"].append(f"OpenAI: {e}")
             time.sleep(2)
             try:
                 response = client.chat.completions.create(
@@ -542,7 +643,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> None:
                 )
             except Exception as e2:
                 print(f"  ✗ OpenAI retry failed: {e2}", flush=True)
-                return
+                diag["errors"].append(f"OpenAI retry failed: {e2}")
+                return diag
 
         msg = response.choices[0].message
         messages.append(msg)
@@ -556,6 +658,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> None:
         # Log assistant reasoning/message
         if msg.content:
             print(f"  GPT says: {msg.content[:500]}", flush=True)
+
+        diag["iterations"] = iteration + 1
 
         if not msg.tool_calls:
             print(f"  ✗ No tool calls — LLM stopped. Elapsed: {time.time()-agent_start:.1f}s", flush=True)
@@ -581,16 +685,35 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> None:
                     "tool_call_id": tool_call.id,
                     "content": "Task marked as completed.",
                 })
-                return
+                diag["done"] = True
+                diag["tokens"] = total_tokens
+                return diag
 
             if name == "tripletex_api":
+                # Auto-fix: ensure isCustomer:true on POST /customer
+                req_body = args.get("body")
+                if args["method"] == "POST" and args["path"].rstrip("/") == "/customer" and req_body:
+                    if "isCustomer" not in req_body:
+                        req_body["isCustomer"] = True
+                # Auto-fix: strip email from PUT /employee (email is immutable)
+                if args["method"] == "PUT" and "/employee/" in args["path"] and "employment" not in args["path"] and req_body:
+                    req_body.pop("email", None)
                 result = call_tripletex(
                     base_url, auth,
                     method=args["method"],
                     path=args["path"],
                     params=args.get("params"),
-                    body=args.get("body"),
+                    body=req_body,
                 )
+                sc = result.get("_status_code", 200)
+                call_info = f"{args['method']} {args['path']} -> {sc}"
+                diag["api_calls"].append(call_info)
+                if sc >= 400:
+                    # Capture validation error details
+                    val_msgs = result.get("validationMessages", [])
+                    msg_text = "; ".join(m.get("message", "") for m in val_msgs) if val_msgs else ""
+                    err_detail = f"{call_info}: {msg_text}" if msg_text else call_info
+                    diag["errors"].append(err_detail)
                 result_str = json.dumps(result, ensure_ascii=False)
                 # Log response data (truncated for readability)
                 preview = result_str[:400] + "…" if len(result_str) > 400 else result_str
@@ -606,7 +729,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> None:
 
         print(f"  Iteration {iteration+1} took {time.time()-iter_start:.1f}s", flush=True)
 
+    diag["tokens"] = total_tokens
     print(f"\n  ⚠ Max iterations reached. Elapsed: {time.time()-agent_start:.1f}s, Tokens: {total_tokens}", flush=True)
+    return diag
 
 
 @app.post("/")
@@ -647,14 +772,23 @@ async def solve(request: Request):
         print(f"  [capture] Failed: {e}", flush=True)
 
     t0 = time.time()
+    diag = {}
     try:
-        run_agent(prompt, files, base_url, auth)
+        diag = run_agent(prompt, files, base_url, auth) or {}
     except Exception as e:
         import traceback
         print(f"  ✗ AGENT ERROR: {e}", flush=True)
         traceback.print_exc()
+        diag["errors"] = [str(e)]
 
+    elapsed = time.time()-t0
     print(f"\n{'='*70}", flush=True)
-    print(f"  TASK COMPLETE — total {time.time()-t0:.1f}s", flush=True)
+    print(f"  TASK COMPLETE — total {elapsed:.1f}s", flush=True)
     print(f"{'='*70}\n", flush=True)
-    return JSONResponse({"status": "completed"})
+    return JSONResponse({
+        "status": "completed" if diag.get("done") else "incomplete",
+        "iterations": diag.get("iterations", 0),
+        "api_calls": diag.get("api_calls", []),
+        "errors": diag.get("errors", []),
+        "tokens": diag.get("tokens", 0),
+    })

@@ -1,0 +1,6 @@
+{
+  "prompt": "Create a ledger voucher dated today. Debit account 6340 (Telefon) with 8500 NOK and credit account 1920 (Bankinnskudd) with 8500 NOK. Description: \"Telefonregning mars 2026\".",
+  "files": [],
+  "source": "diagnostic",
+  "notes": "DIAGNOSTIC: Tests POST /ledger/voucher with JSON body (not params). The exact failure mode from Day2_Attempt9. If agent sends as params -> 422. Must use body with balanced postings (debit positive, credit negative)."
+}

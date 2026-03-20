@@ -1,0 +1,6 @@
+{
+  "prompt": "Create a free accounting dimension called 'Produktlinje' with values 'Basis' and 'Avansert'. Then create a ledger voucher on account 6340 for 15000 NOK with the dimension value 'Avansert'. Credit account 1920.",
+  "files": [],
+  "source": "diagnostic",
+  "notes": "DIAGNOSTIC: Exact reproduction of Day2_Attempt9 task that failed. Tests: POST /ledger/accountingDimensionName (not /ledger/dimension!), POST /ledger/accountingDimensionValue, POST /ledger/voucher with body containing accountingDimensionValue ref."
+}

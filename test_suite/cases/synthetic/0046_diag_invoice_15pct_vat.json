@@ -1,0 +1,6 @@
+{
+  "prompt": "Create an invoice for customer Greenwood Ltd (org no. 945678901, email: accounts@greenwood.com) for 'Security Audit' at 32000 NOK excluding VAT with 15% VAT. Send the invoice by email.",
+  "files": [],
+  "source": "diagnostic",
+  "notes": "DIAGNOSTIC: Invoice with non-standard VAT rate (15% instead of 25%). Agent must look up the correct 15% VAT type from GET /ledger/vatType and use its ID. Must NOT hardcode 25% VAT. Tests that the agent reads the prompt carefully."
+}

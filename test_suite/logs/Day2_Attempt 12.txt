@@ -1,0 +1,47 @@
+Attempt 12 — Fixed-Price Project + Milestone Invoice
+=====================================================
+Score: 2/8 (25%) — 1/4 checks passed
+
+PROMPT:
+  Set a fixed price of 471400 NOK on the project "Infrastructure Upgrade"
+  for Brightstone Ltd (org no. 918888020). The project manager is Alice Taylor
+  (alice.taylor@example.org). Invoice the customer for 25% of the fixed price
+  as a milestone payment.
+
+TASK TYPE: Fixed-price project + milestone invoice (NEW)
+PROXY URL: https://tx-proxy-jwanbnu3pq-lz.a.run.app/v2
+FILES: 0
+STATS: 11 iterations, 121483 tokens, 49.5s
+
+FLOW:
+  [pre] Bank account setup OK (account 1920, id=356396163)
+  [1] POST /customer {name:"Brightstone Ltd", org:"918888020"} → 201 id=108245890
+  [2] GET /employee → found Alice Taylor id=18183703
+  [3] POST /project {name:"Infrastructure Upgrade", number:"PU001",
+      projectManager:{id:18183703}, customer:{id:108245890}} → 201 id=401958501
+  [4] PUT /project/401958501 {fixedPrice:471400}
+      → 422 "fixedPrice: Feltet eksisterer ikke i objektet" ← CRITICAL FAILURE
+      (Agent gave up on setting fixed price — moved to invoicing)
+  [5] GET /ledger/vatType → found id=3 (25% outgoing)
+  [6] POST /product {name:"Milestone Payment - Infrastructure Upgrade",
+      priceExcludingVatCurrency:117850, vatType:{id:3}} → 201 id=84386139
+  [7] POST /order {customer:{id:108245890}, project:{id:401958501}} → 201 id=401958505
+  [8] POST /order/orderline {order:{id:401958505}, product:{id:84386139}} → 201
+  [9] POST /invoice {orders:[{id:401958505}]} → 201 id=2147528053
+  [10] PUT /invoice/2147528053/:send {sendType:"EMAIL"} → 204
+  [11] done()
+
+KEY ISSUES:
+  1. "fixedPrice" is NOT a valid field on /project — agent couldn't set fixed price
+     → Need to discover the correct API for project fixed pricing
+     → Possibly /project/settings, /project/projectActivity, or different field name
+  2. Invoice was created correctly (117850 = 25% of 471400) but without
+     proper project-level fixed price configuration
+  3. Likely check results:
+     - Check 1 PASSED: Customer/project/employee created correctly
+     - Check 2 FAILED: Project fixed price not set
+     - Check 3 FAILED: Unknown (maybe invoice needs project billing link?)
+     - Check 4 FAILED: Unknown
+
+TODO: Investigate Tripletex API for setting fixed price on projects.
+      Try GET /project/{id}?fields=* to see all available fields.

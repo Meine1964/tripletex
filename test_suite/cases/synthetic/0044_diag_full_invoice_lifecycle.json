@@ -1,0 +1,6 @@
+{
+  "prompt": "Opprett en faktura til kunden Teknosenter AS (org.nr. 912345678, e-post: post@teknosenter.no) for \"Konsulenttjenester\" på 55000 NOK ekskl. mva. med 25% mva. Send fakturaen på e-post. Registrer deretter full betaling av fakturaen.",
+  "files": [],
+  "source": "diagnostic",
+  "notes": "DIAGNOSTIC: Full invoice lifecycle in one task - create customer, create invoice, send via email, register payment. Tests chaining: GET /ledger/vatType -> POST /customer -> POST /product -> POST /order -> POST /order/orderline -> POST /invoice -> PUT /:send -> GET /invoice/paymentType -> PUT /:payment. All action endpoints must use params not body."
+}

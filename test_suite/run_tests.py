@@ -239,18 +239,48 @@ def run_single_test(case_path: Path, verbose: bool = True) -> dict:
         "http_ok": status_ok,
         "elapsed": elapsed,
         "status": response_data.get("status", "error"),
+        "iterations": response_data.get("iterations", 0),
+        "api_calls": response_data.get("api_calls", []),
+        "api_errors": response_data.get("errors", []),
+        "tokens": response_data.get("tokens", 0),
         "issues": [],
     }
 
     if not status_ok:
         result["issues"].append(f"FAIL: HTTP {resp.status_code if 'resp' in dir() else 'N/A'}")
 
+    if result["status"] == "incomplete":
+        result["issues"].append("FAIL: Agent did not call done()")
+
+    if result["iterations"] == 0:
+        result["issues"].append("FAIL: Zero iterations")
+
+    if len(result["api_errors"]) > 5:
+        result["issues"].append(f"WARN: {len(result['api_errors'])} API errors")
+
     # Note: For full behavioral checks, we need server logs.
     # When running locally, logs go to the server's stdout.
     # We print a summary here; the detailed logs are in the server terminal.
     print(f"  HTTP: {'✓' if status_ok else '✗'} {resp.status_code if status_ok else 'FAIL'}")
-    print(f"  Time: {elapsed:.1f}s")
-    print(f"  Status: {result['status']}")
+    print(f"  Time: {elapsed:.1f}s | Iters: {result['iterations']} | Tokens: {result['tokens']}")
+    print(f"  Status: {result['status']} | API calls: {len(result['api_calls'])} | Errors: {len(result['api_errors'])}")
+    if result["api_calls"]:
+        for ac in result["api_calls"]:
+            marker = "  ✗" if "-> 4" in ac or "-> 5" in ac else "  ✓"
+            print(f"    {marker} {ac}")
+    if result["api_errors"]:
+        # Show unique error details (validation messages) for failed calls
+        seen = set()
+        for err in result["api_errors"]:
+            # err may contain ": validation message" after the status code
+            if ": " in err and err not in seen:
+                seen.add(err)
+                parts = err.split(": ", 1)
+                if len(parts) == 2 and parts[1]:
+                    print(f"      ^ {parts[1][:120]}")
+    if result["issues"]:
+        for iss in result["issues"]:
+            print(f"  ⚠ {iss}")
 
     return result
 
@@ -295,10 +325,15 @@ def run_all_tests(filter_keyword: str = None) -> None:
     total_time = sum(r["elapsed"] for r in results)
 
     for r in results:
-        status_icon = "✓" if r["http_ok"] and r["status"] == "completed" else "✗"
+        done = r["status"] == "completed"
+        status_icon = "✓" if done else "✗"
         tag = r.get("source_tag", "?")
+        errs = len(r.get("api_errors", []))
+        iters = r.get("iterations", 0)
+        tokens = r.get("tokens", 0)
+        err_str = f" [{errs} err]" if errs > 0 else ""
         issues_str = f" — {', '.join(r['issues'])}" if r["issues"] else ""
-        print(f"  {status_icon} [{r['task_type']:>10}] [{tag:>4}] {r['case'][:35]:<35} {r['elapsed']:>5.1f}s{issues_str}")
+        print(f"  {status_icon} [{r['task_type']:>10}] {r['case'][:40]:<40} {r['elapsed']:>5.1f}s i={iters} t={tokens}{err_str}{issues_str}")
 
     print(f"\n  Total: {total} | Passed: {ok} | Failed: {failed} | Time: {total_time:.1f}s")
     print(f"{'='*70}\n")

@@ -1,0 +1,6 @@
+{
+  "prompt": "Opprett leverandøren Nordic Parts AS (org.nr. 923456789). Registrer deretter leverandørfaktura LF-2026-0501 på 125000 NOK inkl. mva. Beløpet gjelder kontorutstyr (konto 6540). Bruk 25% inngående mva.",
+  "files": [],
+  "source": "diagnostic",
+  "notes": "DIAGNOSTIC: Supplier invoice - large amount. Tests VAT calculation: 125000/1.25=100000 excl VAT, 25000 VAT. Agent must create supplier first (not customer!), then register via voucher or incomingInvoice. Key: correct VAT split."
+}

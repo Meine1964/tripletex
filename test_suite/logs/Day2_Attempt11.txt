@@ -1,0 +1,52 @@
+﻿Day 2, Attempt 11 - Project Invoice with Time Registration (Spanish)
+======================================================================
+
+RESULT: SUCCESS (with workaround) - 16 iterations, 155,534 tokens, 111.0s
+Revision: tripletex-agent-00024-nch
+Proxy: tx-proxy-jwanbnu3pq-lz.a.run.app
+Sandbox had 2 employees (Admin NM + Carmen Romero already existed)
+
+PROMPT (Spanish):
+Registre 34 horas para Carmen Romero (carmen.romero@example.org) en la actividad
+"Analyse" del proyecto "Desarrollo de app" para Sierra SL (org. nr 849835467).
+Tarifa por hora: 1150 NOK/h. Genere una factura de proyecto al cliente basada en
+las horas registradas.
+
+TASK TYPE: Project invoice with time registration (NEW type not seen before)
+
+API CALL SEQUENCE:
+  1. POST /customer (no body)                      -> 422 "request body null"
+  2. POST /customer {Sierra SL, org 849835467}     -> 201 id=108243850
+  3. GET /employee?fields=*                         -> 200 [2 items: Admin NM + Carmen Romero id=18186298]
+  4. POST /project {name:"Desarrollo de app", number:"1", pm:18186298, customer:108243850}
+                                                    -> 422 "number already in use"
+  5. POST /project {same but number:"P002"}         -> 201 id=401956705
+  6. GET /project/401956705                         -> 200 (verify project)
+  7. POST /project/401956705/hourlyRates            -> 404 (wrong endpoint)
+  8. POST /project/401956705/projectActivities      -> 404 (wrong endpoint)
+  9. POST /time/timeEntry                           -> 404 (wrong endpoint)
+ 10. POST /timeEntries                              -> 404 (wrong endpoint)
+ 11. POST /invoice {orders:[401956705]}             -> 422 "order already invoiced"
+     ^ Agent confused project ID with order ID
+
+  === WORKAROUND: Created invoice via order chain ===
+ 12. POST /order {customer:108243850}               -> 201 id=401956720
+ 13. POST /product {name:"Analyse Time Entry", price:1150, vatType:{id:3}}
+                                                    -> 201 id=84385362
+ 14. POST /order/orderline {order:401956720, product:84385362, count:34}
+                                                    -> 201 id=1607501392
+ 15. POST /invoice {orders:[{id:401956720}]}        -> 201 id=2147525729
+ 16. done()
+
+TOTAL API CALLS: 16 (5 errors: 1x 422 body null, 1x 422 number in use, 4x 404 wrong endpoints)
+
+KEY INSIGHTS:
+1. NEW TASK TYPE: "project invoice with time registration" - agent doesn't know time entry endpoints
+2. Time entry endpoints tried (ALL 404): /project/{id}/hourlyRates, /project/{id}/projectActivities,
+   /time/timeEntry, /timeEntries
+3. Correct endpoint is likely: POST /timesheet/entry or similar (needs investigation)
+4. Agent successfully worked around by creating product+order+invoice chain instead
+5. Competition probably accepted this as partial success (invoice was created, but time entries were not registered)
+6. vatType id=3 worked on competition sandbox (unlike persistent sandbox where it fails)
+7. Employee "Carmen Romero" already existed in the competition sandbox (2 employees present)
+8. First POST /customer had no body (bug: GPT sometimes omits body on first call)
