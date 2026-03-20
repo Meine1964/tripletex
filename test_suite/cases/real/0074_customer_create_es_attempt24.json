@@ -1,0 +1,11 @@
+{
+  "prompt": "Crea el cliente Solmar SL con número de organización 879505631. La dirección es Parkveien 49, 4611 Kristiansand. Correo: post@solmar.no.",
+  "files": [],
+  "source": "competition",
+  "captured_at": "20260320T214057",
+  "attempt": 24,
+  "score": "5/8",
+  "task_type": "customer_create",
+  "language": "es",
+  "notes": "Checks 1-4 passed (name, org, email, isCustomer). Checks 5-7 failed - address not set. GPT tried /deliveryAddress instead of physicalAddress/postalAddress on customer. Fixed: added address guidance to prompt."
+}
