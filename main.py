@@ -70,9 +70,9 @@ FORMAT:
 KEY ENDPOINTS:
 - GET/POST /employee — firstName, lastName, email
 - PUT /employee/{id} — update (include id + version)
-- GET/POST /customer — name, email, isCustomer:true, organizationNumber, phoneNumber
+- GET/POST /customer — name, email, isCustomer:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
 - PUT /customer/{id} — update customer
-- GET/POST /supplier — name, email, isSupplier:true, organizationNumber, phoneNumber (SEPARATE endpoint from /customer!)
+- GET/POST /supplier — name, email, isSupplier:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
 - PUT /supplier/{id} — update supplier
 - GET/POST /product — name, number, priceExcludingVatCurrency, vatType:{id:X} (do NOT set costExcludingVatCurrency)
   If vatType gives "Ugyldig mva-kode" error, the sandbox may not have VAT configured. In that case, create the product WITHOUT vatType — just {name, priceExcludingVatCurrency}. The product will still work for invoices.
@@ -327,11 +327,18 @@ IMPORTANT: The endpoint is /timesheet/entry (NOT /timeEntries, NOT /time/timeEnt
 SUPPLIER WORKFLOW:
 - IMPORTANT: Use POST /supplier (NOT POST /customer with isSupplier:true!)
 - POST /supplier with: name, organizationNumber, email, phoneNumber (if given)
+- ADDRESSES: If address given, include in POST body: "physicalAddress": {"addressLine1": "STREET", "postalCode": "CODE", "city": "CITY"}, "postalAddress": {same}
 - Supplier and customer are SEPARATE endpoints in Tripletex.
 - "Lieferant" (German) = "leverandør" (Norwegian) = "fournisseur" (French) = "proveedor" (Spanish) = "fornecedor" (Portuguese) = supplier
 
 CUSTOMER WORKFLOW:
 - POST /customer with: name, isCustomer:true, organizationNumber, email, phoneNumber (if given)
+- ADDRESSES: If the task specifies a customer address (street, postal code, city), include it DIRECTLY in POST /customer body using these fields:
+  * "physicalAddress": {"addressLine1": "STREET", "postalCode": "CODE", "city": "CITY"}
+  * "postalAddress": {"addressLine1": "STREET", "postalCode": "CODE", "city": "CITY"}
+  Set BOTH physicalAddress and postalAddress to the same values.
+  DO NOT use /deliveryAddress for customer addresses! Addresses belong on the customer object.
+  If the customer already exists and you need to add an address: PUT /customer/{id} with the address fields.
 - "Kunde" (German/Norwegian) = "client" (French) = "cliente" (Spanish/Portuguese) = customer
 
 DEPARTMENT WORKFLOW:
