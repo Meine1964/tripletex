@@ -263,6 +263,12 @@ def validate_tool_call(method, path, body=None, params=None):
                 if py_type and not isinstance(val, py_type):
                     violations.append(f"[{rid}] {msg} ({f} is {type(val).__name__}, expected {expected})")
 
+        # Reject specific param values (substring match)
+        for p, forbidden in rule.get("reject_params_values", {}).items():
+            val = params.get(p, "")
+            if forbidden in str(val):
+                violations.append(f"[{rid}] {msg} ({p} contains '{forbidden}')")
+
     return violations
 
 # ── End Validation Rules Engine ─────────────────────────────────
@@ -1941,11 +1947,22 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         print(f"    │  [fix] employment details: shiftDurationHours {req_body['shiftDurationHours']} → 35.5", flush=True)
                         req_body["shiftDurationHours"] = 35.5
 
-                # Auto-fix: POST /activity — ensure activityType
+                # Auto-fix: POST /activity — ensure activityType + strip invalid 'project' field
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/activity" and req_body):
                     if "activityType" not in req_body:
                         req_body["activityType"] = "PROJECT_GENERAL_ACTIVITY"
                         print(f"    │  [fix] activity: added activityType=PROJECT_GENERAL_ACTIVITY", flush=True)
+                    if "project" in req_body:
+                        req_body.pop("project")
+                        print(f"    │  [fix] activity: stripped invalid 'project' field (not supported on POST /activity)", flush=True)
+
+                # Auto-fix: GET /project — strip project(*) from fields param
+                if (args["method"] == "GET" and re.match(r'^/project(/\d+)?$', args["path"].rstrip("/"))):
+                    fields_val = params.get("fields", "")
+                    if "project(*)" in fields_val:
+                        new_fields = fields_val.replace(",project(*)", "").replace("project(*),", "").replace("project(*)", "*")
+                        params["fields"] = new_fields or "*"
+                        print(f"    │  [fix] GET /project: stripped project(*) from fields → {params['fields']}", flush=True)
 
                 # Auto-fix: POST /employee/standardTime — ensure fromDate
                 if (args["method"] == "POST" and "/employee/standardTime" in args["path"] and req_body):
@@ -2192,7 +2209,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     proj_id = result.get("value", {}).get("id")
                     if proj_id:
                         diag_resp = call_tripletex(base_url, auth, "GET", f"/project/{proj_id}",
-                                                   params={"fields": "*,project(*)"})
+                                                   params={"fields": "*"})
                         diag_val = diag_resp.get("value", {})
                         fp_back = diag_val.get("fixedprice")
                         is_fp_back = diag_val.get("isFixedPrice")
@@ -2241,9 +2258,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     "lastName": ln,
                                     "dateOfBirth": "1990-01-01",
                                 }
-                                # Also set email if provided
-                                if req_body.get("email"):
-                                    put_body["email"] = req_body["email"]
+                                # NOTE: do NOT include email — email is immutable on Tripletex employees
                                 rename_resp = call_tripletex(base_url, auth, "PUT", f"/employee/{emp_id}", body=put_body)
                                 rename_sc = rename_resp.get("_status_code", 200)
                                 if rename_sc < 400:

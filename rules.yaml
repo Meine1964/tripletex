@@ -1386,3 +1386,42 @@ rules:
     message: >
       'projectManager' must be an object like {"id": EMPLOYEE_ID},
       not a string or number.
+
+  # ── POST /activity: reject 'project' field (not supported) ────
+  - id: activity-no-project
+    description: "POST /activity does not accept a project field"
+    when:
+      method: POST
+      path: /activity
+    reject_fields:
+      - project
+    message: >
+      POST /activity does NOT support a 'project' field in the body.
+      Create the activity without project — link it to a project via
+      POST /timesheet/entry with {"project":{"id":ID}, "activity":{"id":ID}}.
+
+  # ── GET /ledger/posting: require dateFrom and dateTo ─────────
+  - id: get-posting-dates
+    description: "GET /ledger/posting requires dateFrom and dateTo"
+    when:
+      method: GET
+      path: /ledger/posting
+    require_params:
+      - dateFrom
+      - dateTo
+    message: >
+      GET /ledger/posting requires dateFrom and dateTo query params
+      (YYYY-MM-DD). Better yet: use GET /ledger/voucher?fields=* to
+      get vouchers with postings embedded instead of fetching individual postings.
+
+  # ── GET /project: do not use project(*) in fields filter ─────
+  - id: get-project-no-project-subfield
+    description: "GET /project should not use project(*) in fields"
+    when:
+      method: GET
+      path_pattern: "^/project(/\\d+)?$"
+    reject_params_values:
+      fields: "project(*)"
+    message: >
+      GET /project does not have a 'project' sub-object. Use fields=*
+      instead of fields=*,project(*).
