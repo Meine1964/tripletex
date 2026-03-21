@@ -537,6 +537,41 @@ Step 4: Create the milestone invoice.
 
 Step 5: Call done().
 
+FULL PROJECT CYCLE WORKFLOW (for "prosjektsyklusen"/"project cycle"/"projektzyklus"/"cycle de projet"/"ciclo del proyecto" tasks — involves creating project, registering hours, costs, and invoicing):
+This is a MULTI-STEP task: create entities, register work, register costs, and invoice the customer.
+
+Step 1: Create customer. POST /customer with name, isCustomer:true, organizationNumber.
+
+Step 2: Create supplier (if task mentions supplier/leverandør costs). POST /supplier with name, organizationNumber, email, invoiceEmail, overdueNoticeEmail.
+
+Step 3: Create/update employees.
+  Try POST /employee with {firstName, lastName, email}.
+  If 422: GET /employee?fields=*, then PUT /employee/{id} with {id, version, firstName, lastName, dateOfBirth: "1990-01-01"}.
+  CRITICAL: Do NOT include email in PUT. MUST include dateOfBirth. MUST do PUT to rename!
+
+Step 4: Create the project.
+  POST /project with: name, number ("PRJ-XXXX" random), projectManager:{id}, startDate, customer:{id}.
+  If task mentions "budsjett"/"budget" → set isFixedPrice:true, fixedprice:AMOUNT (lowercase!).
+
+Step 5: Register timesheet entries for each employee.
+  POST /timesheet/entry with employee:{id}, project:{id}, activity:{id}, date, hours.
+  First GET /activity to find a project activity (look for isProjectActivity:true, e.g. "Fakturerbart arbeid").
+
+Step 6: Register supplier costs (if applicable).
+  POST /supplierInvoice with supplier, invoiceNumber, invoiceDate, invoiceDueDate, and voucher with postings.
+  Use amountGross/amountGrossCurrency in postings (NOT amount/amountCurrency).
+
+Step 7: Create customer invoice.
+  CRITICAL: For fixed-price projects (isFixedPrice=true), the invoice excl. VAT MUST equal the fixedprice!
+  a. POST /product — name describing the work, priceExcludingVatCurrency = fixedprice amount, vatType:{id:3} (25% outgoing VAT).
+  b. POST /order — customer:{id}, orderDate, deliveryDate, project:{id}.
+  c. POST /order/orderline — order:{id}, product:{id}, count:1.
+  d. POST /invoice — invoiceDate, invoiceDueDate, orders:[{id}].
+  The resulting invoice total incl VAT = fixedprice × 1.25.
+  Do NOT use hours×rate for the invoice amount on a fixed-price project! Use the fixedprice directly.
+
+Step 8: Call done().
+
 TRAVEL EXPENSE WORKFLOW (for "travel expense"/"reiseregning"/"nota de gastos de viaje"/"note de frais"/"Reisekostenabrechnung"/"nota de despesas" tasks):
 The task asks you to create a travel expense report with costs (receipts) and/or per diem (daily allowance).
 "gastos de viaje" (ES) = "frais de voyage" (FR) = "Reisekosten" (DE) = "despesas de viagem" (PT) = "reiseregning" (NO) = travel expense.
@@ -1140,7 +1175,21 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         # Detect task type for targeted verification
                         _pl = prompt.lower()
                         _task_checks = ""
-                        if any(kw in _pl for kw in ["fastpris", "fixed price", "fixedprice", "prix fixe", "festpreis", "precio fijo", "delbetaling", "milestone", "milepæl"]):
+                        if any(kw in _pl for kw in ["prosjektsyklusen", "project cycle", "projektzyklus", "cycle de projet", "ciclo del proyecto", "ciclo do projeto"]):
+                            _task_checks = (
+                                "TASK TYPE: Full project cycle (create project, register hours/costs, invoice).\n"
+                                "Check these SPECIFIC things:\n"
+                                "- Customer and supplier created with correct names and org numbers?\n"
+                                "- Employees created/updated with correct names?\n"
+                                "- Project created with correct budget/fixedprice?\n"
+                                "- Timesheet hours registered for each employee as specified?\n"
+                                "- Supplier costs registered if mentioned in task?\n"
+                                "- Customer invoice created and linked to the project?\n"
+                                "- BUDGET: The budget/budsjett IS the project fixed price. The invoice excl. VAT should equal the fixedprice. Do NOT flag this as wrong.\n"
+                                "- Invoice NOT sent unless task explicitly says send/sende.\n"
+                                "- Supplier invoice amount=0 in response is NORMAL for Tripletex — do NOT flag it as an error.\n"
+                            )
+                        elif any(kw in _pl for kw in ["fastpris", "fixed price", "fixedprice", "prix fixe", "festpreis", "precio fijo", "delbetaling", "milestone", "milepæl"]):
                             _task_checks = (
                                 "TASK TYPE: Fixed-price project + milestone invoice.\n"
                                 "Check these SPECIFIC things:\n"
@@ -1212,8 +1261,11 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             "Do NOT say a step is missing if you can see it in the log!\n"
                             "IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!\n"
                             "3. DATA: Names, org numbers, dates match the task?\n"
-                            "4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently.\n"
-                            "5. BUDGET vs INVOICE: A project 'budget'/'budsjett' is NOT the invoice amount. The invoice is for actual work/costs. Do NOT flag a mismatch between budget and invoice total.\n\n"
+                            "4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently. "
+                            "EXCEPTION: Supplier invoice (supplierInvoice) responses normally show amount=0 — this is OK.\n"
+                            "5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. "
+                            "For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. "
+                            "For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.\n\n"
                             "Reply ONLY with either:\n"
                             "- 'PASS' if everything looks correct\n"
                             "- 'FAIL: <specific issue>' if something is wrong"
