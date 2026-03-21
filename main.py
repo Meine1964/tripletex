@@ -1634,10 +1634,36 @@ async def solve(request: Request):
     log_text = log_capture.getvalue()
     if log_text:
         ts_file = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        # Extract task hint from prompt for readable filename
-        hint_words = re.sub(r'[^\w\s]', '', prompt[:60]).split()[:4]
-        hint = "_".join(hint_words).lower() if hint_words else "task"
-        log_filename = f"{ts_file}_{hint}.log"
+        # Classify task type for a readable filename
+        pl = prompt.lower()
+        if any(k in pl for k in ["reiseregning", "travel expense", "nota de gastos de viaje", "note de frais", "reisekosten", "despesas de viagem"]):
+            task_type = "travel_expense"
+        elif any(k in pl for k in ["purregebyr", "reminder fee", "late fee", "mora", "frais de retard", "mahngebühr"]):
+            task_type = "reminder_fee"
+        elif any(k in pl for k in ["kreditnota", "credit note", "nota de crédito", "gutschrift", "avoir"]):
+            task_type = "credit_note"
+        elif any(k in pl for k in ["leverandørfaktura", "supplier invoice", "factura de proveedor", "fournisseur", "lieferantenrechnung", "fatura do fornecedor"]):
+            task_type = "supplier_invoice"
+        elif any(k in pl for k in ["tilbakefør", "reverse", "stornieren", "annuler", "reverter", "devuelto"]):
+            task_type = "reverse"
+        elif any(k in pl for k in ["betaling", "payment", "pago", "paiement", "zahlung", "pagamento"]):
+            task_type = "payment"
+        elif any(k in pl for k in ["lønn", "salary", "salario", "salaire", "gehalt", "salário"]):
+            task_type = "salary"
+        elif any(k in pl for k in ["faktura", "invoice", "rechnung", "factura", "facture", "fatura"]):
+            task_type = "invoice"
+        elif any(k in pl for k in ["prosjekt", "project", "proyecto", "projet", "projekt"]):
+            task_type = "project"
+        elif any(k in pl for k in ["ansatt", "employee", "empleado", "employé", "mitarbeiter", "empregado"]):
+            task_type = "employee"
+        else:
+            task_type = "task"
+        # Add short prompt hint (first meaningful words after task-type keywords)
+        clean = re.sub(r'[^\w\s]', '', prompt[:80])
+        short = "_".join(clean.split()[:3]).lower()
+        status = "ok" if diag.get("done") else "fail"
+        iters = diag.get("iterations", 0)
+        log_filename = f"{ts_file}_{task_type}_{status}_{iters}iter_{short}.log"
         # Push synchronously (short timeout) so log is saved before Cloud Run kills the instance
         try:
             push_log_to_github(log_text, log_filename)
