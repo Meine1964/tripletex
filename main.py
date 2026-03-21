@@ -233,7 +233,8 @@ INVOICE WORKFLOW (follow EXACT order — do NOT skip steps):
 6. POST /order/orderline — order:{id: from step 5}, product:{id: from step 1 or 3}, count:1. Repeat for each product.
 7. POST /invoice — invoiceDate, invoiceDueDate (14 days after invoiceDate), orders:[{id: from step 5}]
    CRITICAL: After creating the invoice, READ the "amount" and "amountCurrency" fields from the response! You'll need these for payment.
-8. If task says "send": PUT /invoice/{id from step 7}/:send with params={"sendType":"EMAIL"} (use params, NOT body!)
+8. ONLY if task explicitly says "send"/"sende"/"enviar"/"envoyer"/"senden"/"envia": PUT /invoice/{id from step 7}/:send with params={"sendType":"EMAIL"} (use params, NOT body!)
+   "Fakturer"/"fakturér"/"Invoice"/"Rechnung erstellen" means CREATE the invoice — it does NOT mean send it! Only send if the task uses a send-word.
 9. If task says "register payment" / "registra el pago" / "betaling" / "Zahlung":
    a. GET /invoice/paymentType — find the correct payment type (default: "Betalt til bank")
    b. PUT /invoice/{id}/:payment with params: paymentDate, paymentTypeId, paidAmount, paidAmountCurrency
@@ -390,7 +391,8 @@ Step 4: Create the milestone invoice.
   c. POST /order — customer:{id}, orderDate, deliveryDate, project:{id}.
   d. POST /order/orderline — order:{id}, product:{id}, count:1.
   e. POST /invoice — invoiceDate, invoiceDueDate, orders:[{id}].
-  f. If task says "send"/"fakturér": PUT /invoice/{id}/:send with params={"sendType":"EMAIL"}.
+  f. ONLY if task explicitly says "send"/"sende"/"enviar"/"envoyer"/"senden"/"envia": PUT /invoice/{id}/:send with params={"sendType":"EMAIL"}.
+     "Fakturer"/"Fakturér"/"Invoice" means CREATE the invoice — it does NOT mean send it! Only send if the task uses a send-word.
 
 Step 5: Call done().
 
@@ -977,13 +979,44 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             elif not isinstance(m, dict) and hasattr(m, "tool_calls") and m.tool_calls:
                                 for tc_v in m.tool_calls:
                                     action_log.append(f"CALL: {tc_v.function.name}({tc_v.function.arguments[:300]})")
+                        # Detect task type for targeted verification
+                        _pl = prompt.lower()
+                        _task_checks = ""
+                        if any(kw in _pl for kw in ["fastpris", "fixed price", "fixedprice", "prix fixe", "festpreis", "precio fijo", "delbetaling", "milestone", "milepæl"]):
+                            _task_checks = (
+                                "TASK TYPE: Fixed-price project + milestone invoice.\n"
+                                "Check these SPECIFIC things:\n"
+                                "- Customer created with correct name and org number?\n"
+                                "- Project created with isFixedPrice=true AND fixedprice=AMOUNT (lowercase 'fixedprice')?\n"
+                                "- Project linked to customer (customer.id set on project)?\n"
+                                "- Project manager set correctly?\n"
+                                "- Milestone amount = fixedprice × percentage. This is the TOTAL invoice amount incl. VAT.\n"
+                                "- Product priceExcludingVatCurrency = milestoneAmount / 1.25 (for 25% VAT)?\n"
+                                "- Invoice created from order linked to the project?\n"
+                                "- Invoice NOT sent unless task explicitly says send/sende/enviar/envoyer?\n"
+                                "  'Fakturer'/'fakturér' means CREATE invoice, NOT send it!\n"
+                            )
+                        elif any(kw in _pl for kw in ["lønn", "salary", "paie", "salario", "gehalt", "payroll"]):
+                            _task_checks = (
+                                "TASK TYPE: Salary/payroll.\n"
+                                "Check: employee name correct, employment with division exists, "
+                                "salary transaction has correct base salary and bonus amounts.\n"
+                            )
+                        elif any(kw in _pl for kw in ["kreditnota", "credit note", "gutschrift", "nota de crédito"]):
+                            _task_checks = (
+                                "TASK TYPE: Credit note.\n"
+                                "Check: original invoice found, credit note created referencing it, date set.\n"
+                            )
+
                         verify_prompt = (
                             f"TASK: {prompt}\n\n"
+                            f"{_task_checks}\n"
                             f"ACTION LOG (chronological):\n" + "\n".join(action_log[-40:]) + "\n\n"
                             "You are an accounting verification agent. Check:\n"
                             "1. MATH: All amounts, percentages, VAT calculations correct? "
                             "(e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)\n"
-                            "2. COMPLETENESS: All steps in the task done? (create, invoice, send, pay, etc.)\n"
+                            "2. COMPLETENESS: All steps in the task done? (create, invoice, send, pay, etc.) "
+                            "IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!\n"
                             "3. DATA: Names, org numbers, dates match the task?\n\n"
                             "Reply ONLY with either:\n"
                             "- 'PASS' if everything looks correct\n"
@@ -1215,12 +1248,32 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                                  "date on each posting, supplier on credit posting.")
                         print(f"    │  [hint] injected retry guidance for /supplierInvoice", flush=True)
 
-                # Track fixed-price project creation
+                # Track fixed-price project creation + diagnostic GET-back
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/project"
                         and sc < 400 and req_body
                         and req_body.get("isFixedPrice") and req_body.get("fixedprice")):
                     tracked_fixedprice = float(req_body["fixedprice"])
                     print(f"    │  [track] fixedprice project: {tracked_fixedprice}", flush=True)
+                    # Diagnostic: GET the project back to verify fixedprice is visible
+                    proj_id = result.get("value", {}).get("id")
+                    if proj_id:
+                        diag_resp = call_tripletex(base_url, auth, "GET", f"/project/{proj_id}",
+                                                   params={"fields": "*,project(*)"})
+                        diag_val = diag_resp.get("value", {})
+                        fp_back = diag_val.get("fixedprice")
+                        is_fp_back = diag_val.get("isFixedPrice")
+                        print(f"    │  [diag] GET /project/{proj_id}: fixedprice={fp_back}, isFixedPrice={is_fp_back}", flush=True)
+                        if fp_back is None or not is_fp_back:
+                            print(f"    │  [diag] WARNING: fixedprice not visible after creation!", flush=True)
+                            # Try PUT to re-set the fixedprice
+                            proj_ver = diag_val.get("version", 0)
+                            put_body = {"id": proj_id, "version": proj_ver,
+                                        "fixedprice": req_body["fixedprice"],
+                                        "isFixedPrice": True}
+                            put_resp = call_tripletex(base_url, auth, "PUT", f"/project/{proj_id}",
+                                                      body=put_body)
+                            put_sc = put_resp.get("_status_code", 200)
+                            print(f"    │  [diag] PUT fixedprice re-set: {put_sc}", flush=True)
 
                 # Track employee rename state
                 # PUT /employee succeeded → mark rename done
