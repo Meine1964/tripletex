@@ -1,0 +1,224 @@
+
+======================================================================
+  NEW TASK RECEIVED
+  Version: unknown
+======================================================================
+  Prompt: Establezca un precio fijo de 330300 NOK en el proyecto "Transformación digital" para Viento SL (org. nº 819354626). El director del proyecto es Carlos Rodríguez (carlos.rodriguez@example.org). Facture al cliente el 33 % del precio fijo como pago parcial.
+  Files:  0
+  URL:    https://tx-proxy-jwanbnu3pq-lz.a.run.app/v2
+──────────────────────────────────────────────────────────────────────
+  [pre] Invoice/credit/payment task detected — ensuring bank account...
+    ┌─ API GET /invoice/settings
+    └─ 200 OK (1.5s) id=775105
+    ┌─ API GET /ledger/account
+    │  params: {"isBankAccount": "true", "count": 10}
+    └─ 200 OK (1.8s) [2 items]
+  [bank] found account 1920 id=374184846 v=0
+    ┌─ API PUT /ledger/account/374184846
+    │  body:   {"id": 374184846, "version": 0, "number": 1920, "name": "Bankinnskudd", "bankAccountNumber": "15030100112"}
+    └─ 200 OK (1.7s) id=374184846 name=Bankinnskudd
+  [bank] bank account set OK
+  [pre] Bank account setup: OK
+
+──────────────────────────────────────────────────
+  ITERATION 1/25
+──────────────────────────────────────────────────
+  Tokens: prompt=14681 completion=21 total_session=14702
+  Messages: 3 (54,985 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/customer"})
+    │  [fix] blocked POST without body: /customer
+  Iteration 1 took 0.7s
+
+──────────────────────────────────────────────────
+  ITERATION 2/25
+──────────────────────────────────────────────────
+  Tokens: prompt=14768 completion=41 total_session=29511
+  Messages: 5 (55,195 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/customer","body":{"name":"Viento SL","isCustomer":true,"organizationNumber":"819354626"}})
+    ┌─ API POST /customer
+    │  body:   {"name": "Viento SL", "isCustomer": true, "organizationNumber": "819354626"}
+    └─ 201 OK (1.2s) id=108403317 name=Viento SL
+    │  response: {"value": {"id": 108403317, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108403317", "name": "Viento SL", "organizationNumber": "819354626", "globalLocationNumber": 0, "supplierNumber": 0, "customerNumber": 10002, "isSupplier": false, "isCustomer": true, "isInactive": false, "accountManager": null, "department": null, "email": "", "invoiceEmail": "", "overdueNoticeEmail": "", "phoneNumber": "", "phoneNumberMobile": "", "description": "", "language": "NO", "displayName": "Viento SL (10002)", "isPrivateIndividual": false, "singleCustomerInvoice": false, "invoiceSendMethod": "EMAIL", "emailAttachmentType": "ATTACHMENT", "postalAddress": {"id": 405655556, "url": "kkpqfuj-amager.tripletex.dev/v2/address/405655556"}, "physicalAddress": {"id": 405655555, "url": "kkpqfuj-amager.tripletex.dev/v2/address/405655555"}, "deliveryAddress": null, "category1": null, "category2": null, "category3": null, "invoicesDueIn": 14, "invoicesDueInType": "DAYS", "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "bankAccountPresentation": [], "ledgerAccount": {"id": 374184790, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/account/374184790"}, "isFactoring": false, "invoiceSendSMSNotification": false, "invoiceSMSNotificationNumber": "", "isAutomaticSoftReminderEnabled": false, "isAutomaticReminderEnabled": false, "isAutomaticNoticeOfDebtCollectionEnabled": false, "discountPercentage": 0, "website": ""}}
+  Iteration 2 took 1.9s
+
+──────────────────────────────────────────────────
+  ITERATION 3/25
+──────────────────────────────────────────────────
+  Tokens: prompt=15254 completion=46 total_session=44811
+  Messages: 7 (56,638 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/employee","body":{"firstName":"Carlos","lastName":"Rodríguez","email":"carlos.rodriguez@example.org"}})
+    ┌─ API POST /employee
+    │  body:   {"firstName": "Carlos", "lastName": "Rodríguez", "email": "carlos.rodriguez@example.org"}
+    └─ 422 ERR (1.1s) {"status": 422, "code": 18000, "message": "Validering feilet.", "link": "https://tripletex.no/v2-docs/", "developerMessage": "VALIDATION_ERROR", "validationMessages": [{"field": null, "message": "Brukertype kan ikke være \"0\" eller tom.", "path": null, "rootId": null}], "requestId": "f80f7160-f364-4b0b-a2f5-8b416b67cf6d", "_status_code": 422}
+    │  [auto-fix] POST /employee failed — searching for existing employee to rename as Carlos Rodríguez
+    ┌─ API GET /employee
+    │  params: {"fields": "*"}
+    └─ 200 OK (1.5s) [4 items]
+    ┌─ API PUT /employee/18614392
+    │  body:   {"id": 18614392, "version": 2, "firstName": "Carlos", "lastName": "Rodríguez", "dateOfBirth": "1990-01-01", "email": "carlos.rodriguez@example.org"}
+    └─ 200 OK (1.7s) id=18614392 name=Carlos
+    │  [auto-fix] employee 18614392 renamed to Carlos Rodríguez — returning as created
+    │  response: {"value": {"id": 18614392, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/18614392", "firstName": "Carlos", "lastName": "Rodríguez", "displayName": "Carlos Rodríguez", "employeeNumber": "", "dateOfBirth": "1990-01-01", "email": "carlos.rodriguez@example.org", "phoneNumberMobileCountry": {"id": 161, "url": "kkpqfuj-amager.tripletex.dev/v2/country/161"}, "phoneNumberMobile": "", "phoneNumberHome": "", "phoneNumberWork": "", "nationalIdentityNumber": "", "dnumber": "", "internationalId": {"intAmeldingType": null, "country": null, "number": ""}, "bankAccountNumber": "", "iban": "", "bic": "", "creditorBankCountryId": 0, "usesAbroadPayment": false, "userType": null, "allowInformationRegistration": true, "isContact": false, "isProxy": false, "comments": "", "address": null, "department": {"id": 738790, "url": "kkpqfuj-amager.tripletex.dev/v2/department/738790"}, "employments": [], "holidayAllowanceEarned": {"year": 0, "amount": 0.0, "basis": 0.0, "amountExtraHolidayWeek": 0.0}, "employeeCategory": null, "isAuthProjectOverviewURL": true, "pictureId": 0, "companyId": 107915449, "vismaConnect2FAactive": false}, "_status_code": 201}
+  Iteration 3 took 5.3s
+
+──────────────────────────────────────────────────
+  ITERATION 4/25
+──────────────────────────────────────────────────
+  Tokens: prompt=15680 completion=76 total_session=60567
+  Messages: 9 (57,794 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/project","body":{"name":"Transformación digital","number":"PRJ-5947","projectManager":{"id":18614392},"startDate":"2026-03-21","customer":{"id":108403317},"isFixedPrice":true,"fixedprice":330300}})
+    ┌─ API POST /project
+    │  body:   {"name": "Transformación digital", "number": "PRJ-5947", "projectManager": {"id": 18614392}, "startDate": "2026-03-21", "customer": {"id": 108403317}, "isFixedPrice": true, "fixedprice": 330300}
+    └─ 201 OK (1.2s) id=402030364 name=Transformación digital
+    │  [track] fixedprice project: 330300.0
+    ┌─ API GET /project/402030364
+    │  params: {"fields": "*,project(*)"}
+    └─ 400 ERR (1.2s) {"status": 400, "code": 11000, "message": "Illegal field in fields filter: project. project does not match a field in the model: ProjectDTO", "link": "https://tripletex.no/v2-docs/", "developerMessage": null, "validationMessages": null, "requestId": "caad62c9-09d0-4cab-adbb-0ae6f168feef", "_status_code": 400}
+    │  [diag] GET /project/402030364: fixedprice=None, isFixedPrice=None
+    │  [diag] WARNING: fixedprice not visible after creation!
+    ┌─ API PUT /project/402030364
+    │  body:   {"id": 402030364, "version": 0, "fixedprice": 330300, "isFixedPrice": true}
+    └─ 200 OK (1.3s) id=402030364 name=Transformación digital
+    │  [diag] PUT fixedprice re-set: 200
+    │  response: {"value": {"id": 402030364, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/project/402030364", "name": "Transformación digital", "number": "PRJ-5947", "displayName": "PRJ-5947 Transformación digital", "description": "", "projectManager": {"id": 18614392, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/18614392"}, "department": null, "mainProject": null, "startDate": "2026-03-21", "endDate": null, "customer": {"id": 108403317, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108403317"}, "isClosed": false, "isReadyForInvoicing": false, "isInternal": false, "isOffer": false, "isFixedPrice": true, "projectCategory": null, "deliveryAddress": null, "boligmappaAddress": null, "displayNameFormat": "NAME_STANDARD", "reference": "", "externalAccountsNumber": "", "discountPercentage": 0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "fixedprice": 330300, "contributionMarginPercent": 0, "numberOfSubProjects": 0, "numberOfProjectParticipants": 1, "orderLines": [], "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "markUpOrderLines": 0, "markUpFeesEarned": 0, "isPriceCeiling": false, "priceCeilingAmount": 0, "projectHourlyRates": [{"id": 11087948, "url": "kkpqfuj-amager.tripletex.dev/v2/project/hourlyRates/11087948"}], "forParticipantsOnly": false, "participants": [{"id": 15642690, "url": "kkpqfuj-amager.tripletex.dev/v2/project/participant/15642690"}], "contact": null, "attention": null, "invoiceComment": "", "invoicing…
+  Iteration 4 took 4.9s
+
+──────────────────────────────────────────────────
+  ITERATION 5/25
+──────────────────────────────────────────────────
+  Tokens: prompt=16429 completion=24 total_session=77020
+  Messages: 11 (59,940 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/ledger/vatType"})
+    ┌─ API GET /ledger/vatType
+    └─ 200 OK (1.6s) [56 items]
+    │  response: {"fullResultSize": 56, "from": 0, "count": 56, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 1, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/1", "name": "Fradrag inngående avgift, høy sats", "number": "1", "displayName": "1: (25%) Fradrag inngående avgift, høy sats", "percentage": 25, "deductionPercentage": 100.0, "parentType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}}, {"id": 2, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/2", "name": "Direktepostert fradrag inngående avgift, høy sats (mva-kode utgikk 01.01.2017)", "number": "UT-2", "displayName": "UT-2: (100%) Direktepostert fradrag inngående avgift, høy sats (mva-kode utgikk 01.01.2017)", "percentage": 100.0, "deductionPercentage": 100.0, "parentType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}}, {"id": 3, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3", "name": "Utgående avgift, høy sats", "number": "3", "displayName": "3: (25%) Utgående avgift, høy sats", "percentage": 25, "deductionPercentage": 100.0, "parentType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}}, {"id": 4, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/4", "name": "Direktepostert utgående avgift, høy sats", "number": "4", "displayName": "4: (100%) Direktepostert utgående avgift, høy sats", "percentage": 100.0, "deductionPercentage": 100.0, "parentType": {"id…
+  Iteration 5 took 2.7s
+
+──────────────────────────────────────────────────
+  ITERATION 6/25
+──────────────────────────────────────────────────
+  Tokens: prompt=19460 completion=54 total_session=96534
+  Messages: 13 (67,954 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/product","body":{"name":"Delbetaling - Transformación digital","priceExcludingVatCurrency":87119.99999999999,"vatType":{"id":3}}})
+    ┌─ API POST /product
+    │  body:   {"name": "Delbetaling - Transformación digital", "priceExcludingVatCurrency": 87119.99999999999, "vatType": {"id": 3}}
+    └─ 201 OK (1.3s) id=84418974 name=Delbetaling - Transformación digital
+    │  response: {"value": {"id": 84418974, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84418974", "name": "Delbetaling - Transformación digital", "number": "", "displayNumber": "", "description": "", "orderLineDescription": "", "costExcludingVatCurrency": 0, "costPrice": 0, "priceExcludingVatCurrency": 87119.99999999999, "priceIncludingVatCurrency": 108900.0, "isInactive": false, "productUnit": null, "incomingStock": 0, "outgoingStock": 0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "department": null, "account": null, "supplier": null, "resaleProduct": null, "isDeletable": false, "hasSupplierProductConnected": false, "image": null, "displayName": "Delbetaling - Transformación digital", "mainSupplierProduct": null, "isRoundPriceIncVat": false, "priceInTargetCurrency": 0, "purchasePriceCurrency": 0}}
+  Iteration 6 took 5.6s
+
+──────────────────────────────────────────────────
+  ITERATION 7/25
+──────────────────────────────────────────────────
+  Tokens: prompt=19817 completion=60 total_session=116411
+  Messages: 15 (68,879 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order","body":{"customer":{"id":108403317},"orderDate":"2026-03-21","deliveryDate":"2026-03-21","project":{"id":402030364}}})
+    ┌─ API POST /order
+    │  body:   {"customer": {"id": 108403317}, "orderDate": "2026-03-21", "deliveryDate": "2026-03-21", "project": {"id": 402030364}}
+    └─ 201 OK (1.6s) id=402030380
+    │  response: {"value": {"id": 402030380, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402030380", "customer": {"id": 108403317, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108403317"}, "contact": null, "attn": null, "displayName": "2 Ordre", "receiverEmail": "", "overdueNoticeEmail": "", "number": "2", "reference": "", "department": null, "orderDate": "2026-03-21", "project": {"id": 402030364, "url": "kkpqfuj-amager.tripletex.dev/v2/project/402030364"}, "invoiceComment": "", "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "invoicesDueIn": 14, "invoicesDueInType": "DAYS", "isShowOpenPostsOnInvoices": false, "isClosed": false, "deliveryDate": "2026-03-21", "deliveryAddress": null, "deliveryComment": "", "isPrioritizeAmountsIncludingVat": false, "orderLineSorting": "PRODUCT", "orderGroups": [], "orderLines": [], "isSubscription": false, "subscriptionDuration": 0, "subscriptionDurationType": "MONTHS", "subscriptionPeriodsOnInvoice": 0, "subscriptionPeriodsOnInvoiceType": "MONTHS", "subscriptionInvoicingTimeInAdvanceOrArrears": "ADVANCE", "subscriptionInvoicingTime": 0, "subscriptionInvoicingTimeType": "MONTHS", "isSubscriptionAutoInvoicing": false, "preliminaryInvoice": {"id": 2147628930, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147628930"}, "attachment": [], "sendMethodDescription": "Faktura må sendes manuelt.", "invoiceOnAccountVatHigh": false, "totalInvoicedOnAccountAmountAbsoluteCurrency": 0.0, "invoiceSendSMSNotification": false, "i…
+  Iteration 7 took 3.4s
+
+──────────────────────────────────────────────────
+  ITERATION 8/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20409 completion=45 total_session=136865
+  Messages: 17 (70,581 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402030380},"product":{"id":84418974},"count":1}})
+    ┌─ API POST /order/orderline
+    │  body:   {"order": {"id": 402030380}, "product": {"id": 84418974}, "count": 1}
+    └─ 201 OK (1.7s) id=1607568634
+    │  response: {"value": {"id": 1607568634, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607568634", "product": {"id": 84418974, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84418974"}, "inventory": null, "description": "", "displayName": "Delbetaling - Transformación digital", "count": 1.0, "unitCostCurrency": 0.0, "unitPriceExcludingVatCurrency": 87120.0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "markup": 0.0, "discount": 0.0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "amountExcludingVatCurrency": 87120.0, "amountIncludingVatCurrency": 108900.0, "vendor": null, "order": {"id": 402030380, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402030380"}, "unitPriceIncludingVatCurrency": 108900.0, "isSubscription": false, "subscriptionPeriodStart": null, "subscriptionPeriodEnd": null, "orderGroup": null, "sortIndex": 0, "isPicked": false, "pickedDate": null, "orderedQuantity": 0, "isCharged": false}}
+  Iteration 8 took 2.7s
+
+──────────────────────────────────────────────────
+  ITERATION 9/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20808 completion=54 total_session=157727
+  Messages: 19 (71,574 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/invoice","body":{"invoiceDate":"2026-03-21","invoiceDueDate":"2026-04-04","orders":[{"id":402030380}]}})
+    ┌─ API POST /invoice
+    │  body:   {"invoiceDate": "2026-03-21", "invoiceDueDate": "2026-04-04", "orders": [{"id": 402030380}]}
+    └─ 201 OK (1.7s) id=2147628933
+    │  response: {"value": {"id": 2147628933, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147628933", "invoiceNumber": 1, "invoiceDate": "2026-03-21", "customer": {"id": 108403317, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108403317"}, "creditedInvoice": 0, "isCredited": false, "invoiceDueDate": "2026-04-04", "kid": "", "invoiceComment": "", "comment": "", "orders": [{"id": 402030380, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402030380"}], "orderLines": [{"id": 1607568634, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607568634"}], "travelReports": [], "projectInvoiceDetails": [{"id": 1965789387, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/details/1965789387"}], "voucher": {"id": 609106841, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609106841"}, "deliveryDate": "2026-03-21", "amount": 108900.0, "amountCurrency": 108900.0, "amountExcludingVat": 87120.0, "amountExcludingVatCurrency": 87120.0, "amountRoundoff": 0, "amountRoundoffCurrency": 0, "amountOutstanding": 108900.0, "amountCurrencyOutstanding": 108900.0, "amountOutstandingTotal": 108900.0, "amountCurrencyOutstandingTotal": 108900.0, "sumRemits": 0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "isCreditNote": false, "isCharged": true, "isApproved": false, "postings": [{"id": 3845687894, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3845687894"}], "reminders": [], "invoiceRemarks": "", "invoiceRemark": null, "isPeriodizationPossible": true, "doc…
+  Iteration 9 took 3.2s
+
+──────────────────────────────────────────────────
+  ITERATION 10/25
+──────────────────────────────────────────────────
+  Tokens: prompt=21409 completion=9 total_session=179145
+  Messages: 21 (73,096 chars)
+  Tool calls (1):
+    [1] done()
+
+  ⏳ Verifying task completion (254s remaining)...
+  📋 Verification prompt (5020 chars):
+    │ TASK: Establezca un precio fijo de 330300 NOK en el proyecto "Transformación digital" para Viento SL (org. nº 819354626). El director del proyecto es Carlos Rodríguez (carlos.rodriguez@example.org). Facture al cliente el 33 % del precio fijo como pago parcial.
+    │ 
+    │ TASK TYPE: Fixed-price project + milestone invoice.
+    │ Check these SPECIFIC things:
+    │ - Customer created with correct name and org number?
+    │ - Project created with isFixedPrice=true AND fixedprice=AMOUNT (lowercase 'fixedprice')?
+    │ - Project linked to customer (customer.id set on project)?
+    │ - Project manager set correctly?
+    │ - Milestone amount = fixedprice × percentage. This is the TOTAL invoice amount incl. VAT.
+    │ - Product priceExcludingVatCurrency = milestoneAmount / 1.25 (for 25% VAT)?
+    │ - Invoice created from order linked to the project?
+    │ - Invoice NOT sent unless task explicitly says send/sende/enviar/envoyer?
+    │   'Fakturer'/'fakturér' means CREATE invoice, NOT send it!
+    │ 
+    │ ACTION LOG (chronological):
+    │ CALL: tripletex_api({"method":"POST","path":"/customer"})
+    │ status=400
+    │ CALL: tripletex_api({"method":"POST","path":"/customer","body":{"name":"Viento SL","isCustomer":true,"organizationNumber":"819354626"}})
+    │ status=ok id=108403317 name=Viento SL
+    │ CALL: tripletex_api({"method":"POST","path":"/employee","body":{"firstName":"Carlos","lastName":"Rodríguez","email":"carlos.rodriguez@example.org"}})
+    │ status=201 id=18614392
+    │ CALL: tripletex_api({"method":"POST","path":"/project","body":{"name":"Transformación digital","number":"PRJ-5947","projectManager":{"id":18614392},"startDate":"2026-03-21","customer":{"id":108403317},"isFixedPrice":true,"fixedprice":330300}})
+    │ status=ok id=402030364 name=Transformación digital fixedprice=330300 isFixedPrice=True
+    │ CALL: tripletex_api({"method":"GET","path":"/ledger/vatType"})
+    │ CALL: tripletex_api({"method":"POST","path":"/product","body":{"name":"Delbetaling - Transformación digital","priceExcludingVatCurrency":87119.99999999999,"vatType":{"id":3}}})
+    │ status=ok id=84418974 name=Delbetaling - Transformación digital priceExcludingVatCurrency=87119.99999999999 priceIncludingVatCurrency=108900.0
+    │ CALL: tripletex_api({"method":"POST","path":"/order","body":{"customer":{"id":108403317},"orderDate":"2026-03-21","deliveryDate":"2026-03-21","project":{"id":402030364}}})
+    │ status=ok id=402030380
+    │ CALL: tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402030380},"product":{"id":84418974},"count":1}})
+    │ status=ok id=1607568634 count=1.0
+    │ CALL: tripletex_api({"method":"POST","path":"/invoice","body":{"invoiceDate":"2026-03-21","invoiceDueDate":"2026-04-04","orders":[{"id":402030380}]}})
+    │ status=ok id=2147628933 amount=108900.0 amountCurrency=108900.0 invoiceNumber=1
+    │ CALL: done({})
+    │ 
+    │ You are an accounting verification agent. Based ONLY on the action log above, check:
+    │ 1. MATH: All amounts, percentages, VAT calculations correct? (e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)
+    │ 2. COMPLETENESS: Were all steps in the task done? Look at the CALL entries — if the action log shows the step was performed with status=ok, it WAS done. Do NOT say a step is missing if you can see it in the log!
+    │ IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!
+    │ 3. DATA: Names, org numbers, dates match the task?
+    │ 4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently. EXCEPTION: Supplier invoice (supplierInvoice) responses normally show amount=0 — this is OK.
+    │ 5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.
+    │ 6. PAYMENT AMOUNTS: Invoice payments and reversals use the FULL amount INCLUDING VAT, not excl. VAT. If the task says 'X NOK excl. VAT', the correct payment/reversal amount is X × 1.25 (Norwegian 25% VAT). Do NOT flag a mismatch between excl. VAT amounts in the task and incl. VAT payment amounts.
+    │ 7. VAT BREAKDOWN: If the total invoice amount matches the expected sum, do NOT fail on 'VAT breakdown not reflected' or similar vague VAT concerns. Only fail if a specific line item has the WRONG VAT rate applied.
+    │ 
+    │ CRITICAL: Be CONSERVATIVE. When in doubt, say PASS.
+    │ Only say FAIL for CLEAR, OBJECTIVE, SPECIFIC errors (wrong math, completely missing step, wrong name).
+    │ Do NOT say FAIL for: vague concerns, 'might be wrong', uncertain issues, minor stylistic differences, or steps you cannot confirm from the log (absence of evidence is NOT evidence of absence).
+    │ A false FAIL causes MORE damage than a missed error. When uncertain, ALWAYS say PASS.
+    │ If the action log shows all main steps completed with status=ok, say PASS.
+    │ 
+    │ Reply ONLY with either:
+    │ - 'PASS' if everything looks correct or you are unsure
+    │ - 'FAIL: <specific issue>' ONLY if there is an obvious, objective error
+  🔍 Verification (1302 tokens): PASS
+
+  ✓ DONE — 10 iterations, 179145 tokens, 36.2s
+
+======================================================================
+  TASK COMPLETE — total 36.7s
+======================================================================
+
