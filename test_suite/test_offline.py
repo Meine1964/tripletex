@@ -379,6 +379,106 @@ def test_employment_prompt_guidance():
             fail(name, f"Missing '{substring}' in system prompt")
 
 
+def test_salary_fallback_guidance():
+    """Test that salary fallback guidance exists in the system prompt."""
+    print("\n── Salary Fallback Guidance ──")
+    prompt = SYSTEM_PROMPT_TEMPLATE
+
+    checks = [
+        ("salary voucher fallback in prompt", "MANUAL VOUCHER FALLBACK"),
+        ("mentions account 5000", "5000"),
+        ("mentions account 2930", "2930"),
+        ("mentions division error", "division"),
+    ]
+
+    for name, substring in checks:
+        if substring in prompt:
+            ok(name)
+        else:
+            fail(name, f"Missing '{substring}' in salary section of prompt")
+
+
+def test_put_autofix_employee_valid():
+    """Test that PUT /employee with id+version passes validation (no false positive)."""
+    print("\n── PUT Auto-fix Validation ──")
+    # PUT with id and version in body should PASS the employee-put-id-version rule
+    expect_pass("employee-put-with-id-version",
+                "PUT", "/employee/18689874",
+                body={"id": 18689874, "version": 1, "firstName": "Test", "lastName": "User", "dateOfBirth": "1990-01-01"})
+
+    # PUT *without* id should TRIGGER employee-put-id-version
+    expect_violation("employee-put-missing-id",
+                     "PUT", "/employee/18689874",
+                     body={"firstName": "Test", "lastName": "User", "version": 1},
+                     rule_id="employee-put-id-version")
+
+    # PUT without version should TRIGGER employee-put-id-version
+    expect_violation("employee-put-missing-version",
+                     "PUT", "/employee/18689874",
+                     body={"id": 18689874, "firstName": "Test", "lastName": "User"},
+                     rule_id="employee-put-id-version")
+
+
+def test_smart_list_trimming():
+    """Test smart list response condensation logic."""
+    print("\n── Smart List Trimming ──")
+    # Simulate a large list of account objects
+    accounts = []
+    for i in range(100):
+        accounts.append({
+            "id": 1000 + i, "version": 0, "number": 1000 + i,
+            "numberPretty": str(1000 + i),
+            "name": f"Account {1000 + i}",
+            "description": "Long description that wastes tokens",
+            "type": "ASSETS",
+            "legalVatTypes": [{"id": 0}],
+            "ledgerType": "GENERAL",
+            "balanceGroup": "Group",
+            "vatType": {"id": 0},
+            "vatLocked": True,
+            "currency": None,
+            "isBankAccount": False,
+            "isInvoiceAccount": False,
+            "bankAccountNumber": "",
+            "displayName": f"{1000 + i} Account {1000 + i}",
+        })
+
+    result = {"fullResultSize": 529, "from": 0, "count": 100, "values": accounts}
+    result_str = json.dumps(result, ensure_ascii=False)
+
+    # Check that originals are bigger
+    _keep = {"id", "version", "name", "number", "displayName", "numberPretty",
+             "firstName", "lastName", "startDate", "date", "amount", "type",
+             "description", "code", "nameNO", "invoiceNumber", "isBankAccount"}
+    condensed = [{k: v[k] for k in _keep if k in v} for v in accounts]
+    trimmed = {k: result[k] for k in result if k != "values"}
+    trimmed["values"] = condensed
+    trimmed_str = json.dumps(trimmed, ensure_ascii=False)
+
+    if len(trimmed_str) < len(result_str):
+        ok(f"condensed list is smaller ({len(trimmed_str)} < {len(result_str)} chars)")
+    else:
+        fail("condensed list should be smaller", f"{len(trimmed_str)} vs {len(result_str)}")
+
+    # Check that all 100 items are preserved
+    if len(condensed) == 100:
+        ok("all 100 items preserved after condensation")
+    else:
+        fail("item count mismatch", f"expected 100, got {len(condensed)}")
+
+    # Check that key fields are kept but bloat fields are removed
+    sample = condensed[0]
+    if "id" in sample and "name" in sample and "number" in sample:
+        ok("key fields (id, name, number) preserved")
+    else:
+        fail("key fields missing", str(sample.keys()))
+
+    if "bankAccountNumber" not in sample and "vatLocked" not in sample and "currency" not in sample:
+        ok("bloat fields removed (bankAccountNumber, vatLocked, currency)")
+    else:
+        fail("bloat fields still present", str(sample.keys()))
+
+
 # ── Main ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("=" * 60)
@@ -397,6 +497,9 @@ if __name__ == "__main__":
     test_new_log_analysis_rules()
     test_reject_field_values_engine()
     test_employment_prompt_guidance()
+    test_salary_fallback_guidance()
+    test_put_autofix_employee_valid()
+    test_smart_list_trimming()
 
     print(f"\n{'=' * 60}")
     print(f"  RESULTS: {passed} passed, {failed} failed")

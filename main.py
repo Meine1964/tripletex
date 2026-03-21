@@ -557,9 +557,11 @@ Step 2: Ensure employee has an employment record.
   If POST fails with "Overlappende perioder" (overlapping periods):
     The employee ALREADY HAS employment! GET /employee/employment?employeeId=EMP_ID to find it and use that.
   IMPORTANT: Do NOT try to DELETE employment records — DELETE is not allowed (405). Always use the existing employment.
-  If POST /employee/employment fails with "division.id" error, the sandbox may not support division assignment.
-  In that case, SKIP creating new employment — use the existing one! GET /employee/employment?employeeId=X to find it.
-  An employment with division=null is still USABLE for salary transactions and employment details.
+  If POST /employee/employment fails with "division.id" error, the sandbox may not support that division ID.
+  The correct division ID is the employee's companyId (GET /employee/{id}?fields=companyId). Try again with that.
+  If ALL division attempts fail: use the EXISTING employment! GET /employee/employment?employeeId=X to find it.
+  For salary: if the salary API fails because employment has no division, use manual vouchers as fallback:
+  POST /ledger/voucher with postings: debit 5000 (Lønn), credit 2930 (Skyldig lønn) for the total salary amount.
 
 Step 2b: Look up salary types.
   GET /salary/type — returns available salary types. Key types:
@@ -585,6 +587,11 @@ Step 3: Create the salary transaction WITH INLINE SPECIFICATIONS in ONE call:
   - "count" is always 1 for monthly salary/bonus.
   - Include ALL salary lines (base salary + bonus) as specifications in ONE request.
   - DO NOT use POST /salary/specification — that endpoint does not exist!
+  - If POST /salary/transaction fails with "virksomhet" or "division" errors, use the MANUAL VOUCHER FALLBACK:
+    a. Look up account IDs: GET /ledger/account?number=5000 (Lønn) and GET /ledger/account?number=2930 (Skyldig lønn)
+    b. POST /ledger/voucher with two balanced postings:
+       Debit 5000 (total salary) and Credit 2930 (total salary)  
+       Include ALL salary components (base + bonus) in one total amount.
 
 Step 4: Call done() when complete.
 
@@ -1889,6 +1896,24 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     if "dateOfBirth" not in req_body:
                         req_body["dateOfBirth"] = "1990-01-01"
                         print(f"    │  [fix] added dateOfBirth to PUT /employee", flush=True)
+                # Auto-fix: For PUT requests, inject 'id' from URL and fetch 'version' if missing
+                if args["method"] == "PUT" and req_body and isinstance(req_body, dict):
+                    path_segments = args["path"].rstrip("/").split("/")
+                    if path_segments and path_segments[-1].isdigit():
+                        path_id = int(path_segments[-1])
+                        if "id" not in req_body:
+                            req_body["id"] = path_id
+                            print(f"    │  [fix] injected id={path_id} from URL path into PUT body", flush=True)
+                        if "version" not in req_body:
+                            try:
+                                ver_resp = call_tripletex(base_url, auth, "GET", args["path"],
+                                                          params={"fields": "id,version"})
+                                cur_ver = (ver_resp.get("value") or {}).get("version")
+                                if cur_ver is not None:
+                                    req_body["version"] = cur_ver
+                                    print(f"    │  [fix] fetched version={cur_ver} for PUT {args['path']}", flush=True)
+                            except Exception as e:
+                                print(f"    │  [fix] could not fetch version for PUT: {e}", flush=True)
                 # Auto-fix: supplier invoice voucher postings — amount→amountGross
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/supplierInvoice" and req_body:
                     voucher = req_body.get("voucher", {})
@@ -1947,19 +1972,24 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
                         and req_body and not req_body.get("division")):
                     try:
-                        co_resp = call_tripletex(base_url, auth, "GET", "/company/>withLoginAccess")
-                        companies = co_resp.get("values", [])
                         co_id = None
-                        if companies:
-                            co_id = companies[0].get("id")
+                        # Priority 1: use employee's companyId (this is always the correct business unit)
+                        emp_id_for_div = (req_body.get("employee") or {}).get("id")
+                        if emp_id_for_div:
+                            emp_resp = call_tripletex(base_url, auth, "GET", f"/employee/{emp_id_for_div}", params={"fields": "companyId"})
+                            co_id = (emp_resp.get("value") or {}).get("companyId")
+                            if co_id:
+                                print(f"    │  [fix] employment: using employee companyId={co_id} as division", flush=True)
+                        # Priority 2: fallback to company list (avoid legal entity)
                         if not co_id:
-                            # Fallback: find companyId from employee data in previous messages
-                            emp_id_for_div = (req_body.get("employee") or {}).get("id")
-                            if emp_id_for_div:
-                                emp_resp = call_tripletex(base_url, auth, "GET", f"/employee/{emp_id_for_div}", params={"fields": "companyId"})
-                                co_id = (emp_resp.get("value") or {}).get("companyId")
-                                if co_id:
-                                    print(f"    │  [fix] employment: using employee companyId={co_id} as fallback", flush=True)
+                            co_resp = call_tripletex(base_url, auth, "GET", "/company/>withLoginAccess")
+                            companies = co_resp.get("values", [])
+                            if len(companies) > 1:
+                                # Skip the first company (often the legal entity), use the second
+                                co_id = companies[1].get("id")
+                                print(f"    │  [fix] employment: using second company={co_id} (skipped legal entity)", flush=True)
+                            elif companies:
+                                co_id = companies[0].get("id")
                         if co_id:
                             req_body["division"] = {"id": co_id}
                             print(f"    │  [fix] employment: added division {{id:{co_id}}}", flush=True)
@@ -2231,6 +2261,29 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     body=req_body,
                 )
                 sc = result.get("_status_code", 200)
+
+                # Auto-fix: version conflict on PUT — re-fetch version and retry once
+                if args["method"] == "PUT" and sc in (409, 422) and req_body and isinstance(req_body, dict):
+                    val_msgs = result.get("validationMessages", [])
+                    err_text = json.dumps(result, ensure_ascii=False).lower()
+                    is_version_err = ("version" in err_text and ("conflict" in err_text or "utdatert" in err_text or "optimistic" in err_text or "stale" in err_text)) or any("version" in (m.get("field", "") or "").lower() for m in val_msgs)
+                    if is_version_err:
+                        path_segments = args["path"].rstrip("/").split("/")
+                        if path_segments and path_segments[-1].isdigit():
+                            try:
+                                ver_resp = call_tripletex(base_url, auth, "GET", args["path"],
+                                                          params={"fields": "id,version"})
+                                new_ver = (ver_resp.get("value") or {}).get("version")
+                                if new_ver is not None and new_ver != req_body.get("version"):
+                                    old_ver = req_body.get("version")
+                                    req_body["version"] = new_ver
+                                    print(f"    │  [auto-fix] version conflict: {old_ver} → {new_ver}, retrying PUT", flush=True)
+                                    result = call_tripletex(base_url, auth, "PUT", args["path"],
+                                                            params=args.get("params"), body=req_body)
+                                    sc = result.get("_status_code", 200)
+                            except Exception as e:
+                                print(f"    │  [auto-fix] version conflict retry failed: {e}", flush=True)
+
                 call_info = f"{args['method']} {args['path']} -> {sc}"
                 diag["api_calls"].append(call_info)
                 if sc >= 400:
@@ -2247,6 +2300,21 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                                  "not a supplier invoice entity. Check: amountGross (not amount), row >= 1, "
                                                  "date on each posting, supplier on credit posting.")
                         print(f"    │  [hint] injected retry guidance for /supplierInvoice", flush=True)
+
+                    # Guide GPT to use manual vouchers when salary transaction fails with division/virksomhet errors
+                    if (args["method"] == "POST" and args["path"].rstrip("/") == "/salary/transaction" and sc >= 400):
+                        err_text = json.dumps(result, ensure_ascii=False).lower()
+                        if "virksomhet" in err_text or "division" in err_text or "employment" in err_text:
+                            result["_fallback_hint"] = (
+                                "Salary API failed because employment is not linked to a business unit. "
+                                "USE MANUAL VOUCHER FALLBACK: "
+                                "1. GET /ledger/account?number=5000 to find 'Lønn til ansatte' account id. "
+                                "2. GET /ledger/account?number=2930 to find 'Skyldig lønn' account id. "
+                                "3. POST /ledger/voucher with TWO balanced postings: "
+                                "debit 5000 (positive amount = total salary incl. bonus) and credit 2930 (negative same amount). "
+                                "This records the payroll expense correctly."
+                            )
+                            print(f"    │  [hint] salary API failed with division error — injected voucher fallback guidance", flush=True)
 
                     # Auto-fix: employment overlap — GET existing employment and guide GPT
                     if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
@@ -2612,6 +2680,25 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             print(f"    │  [auto-fix] employee rename failed: {rename_sc}", flush=True)
 
                 result_str = json.dumps(result, ensure_ascii=False)
+                # Smart trimming: for large list responses, condense values to key fields
+                if isinstance(result, dict) and "values" in result and isinstance(result["values"], list):
+                    vals = result["values"]
+                    if len(vals) > 30:
+                        _keep = {"id", "version", "name", "number", "displayName", "numberPretty",
+                                 "firstName", "lastName", "startDate", "date", "amount", "type",
+                                 "description", "code", "nameNO", "invoiceNumber", "isBankAccount"}
+                        condensed = []
+                        for v in vals:
+                            if isinstance(v, dict):
+                                c = {k: v[k] for k in _keep if k in v}
+                                condensed.append(c)
+                            else:
+                                condensed.append(v)
+                        trimmed = {k: result[k] for k in result if k != "values"}
+                        trimmed["values"] = condensed
+                        trimmed["_note"] = f"Condensed {len(vals)} items to key fields. Use ?query= or ?name= or ?number= to filter, or GET /.../<id> for full details."
+                        result_str = json.dumps(trimmed, ensure_ascii=False)
+                        print(f"    │  [trim] condensed {len(vals)} items → key fields ({len(result_str)} chars)", flush=True)
                 # Log response data (truncated for readability)
                 preview = result_str[:1500] + "…" if len(result_str) > 1500 else result_str
                 print(f"    │  response: {preview}", flush=True)
