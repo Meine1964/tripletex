@@ -1112,7 +1112,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     ]
 
     user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates."
-    vision_parts = []  # For PDF/image vision inputs
+    vision_parts = []  # For image vision inputs
     if files:
         user_content += f"\n\nAttached files ({len(files)}):"
         for f in files:
@@ -1136,19 +1136,11 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             user_content += f"\n  PDF Text Content:\n{pdf_text[:15000]}"
                             print(f"    [file] Extracted {len(pdf_text)} chars from PDF: {fname}", flush=True)
                         else:
-                            user_content += "\n  [PDF has no extractable text — see image below]"
-                            print(f"    [file] PDF has no text, relying on vision: {fname}", flush=True)
+                            user_content += "\n  [PDF has no extractable text, content may be image-based]"
+                            print(f"    [file] PDF has no text: {fname}", flush=True)
                     except Exception as e:
                         user_content += f"\n  [PDF text extraction failed: {e}]"
                         print(f"    [file] PDF extraction error: {e}", flush=True)
-                    # Also send PDF as vision input for GPT-4o to see formatting/tables
-                    vision_parts.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:application/pdf;base64,{f['content_base64']}",
-                            "detail": "high",
-                        },
-                    })
                 elif is_image:
                     # Send images directly as vision input
                     vision_parts.append({
