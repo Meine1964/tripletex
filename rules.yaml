@@ -544,14 +544,14 @@ rules:
 
   # ── Supplier Invoice: dueDate required ────────────────────────
   - id: supplier-invoice-duedate
-    description: "POST /supplierInvoice needs dueDate"
+    description: "POST /supplierInvoice needs invoiceDueDate"
     when:
       method: POST
       path: /supplierInvoice
     require_fields:
-      - dueDate
+      - invoiceDueDate
     message: >
-      POST /supplierInvoice requires 'dueDate' (YYYY-MM-DD). Without it
+      POST /supplierInvoice requires 'invoiceDueDate' (YYYY-MM-DD). Without it
       the invoice is incomplete and may be rejected.
 
   # ── Supplier Invoice: voucher needs postings array ────────────
@@ -667,3 +667,92 @@ rules:
     message: >
       'month' on POST /salary/transaction must be a number (1-12),
       not a string.
+
+  # ── Employee PUT needs id + version ───────────────────────────
+  - id: employee-put-id-version
+    description: "PUT /employee needs id and version in body"
+    when:
+      method: PUT
+      path_pattern: "^/employee/\\d+$"
+    require_fields:
+      - id
+      - version
+    message: >
+      PUT /employee requires 'id' and 'version' in the body. First GET
+      the employee to find the current version number.
+
+  # ── Travel Expense: travelDetails with dates ──────────────────
+  - id: travel-expense-traveldetails
+    description: "POST /travelExpense should include travelDetails"
+    when:
+      method: POST
+      path: /travelExpense
+    require_fields:
+      - travelDetails
+    message: >
+      POST /travelExpense requires 'travelDetails' object with
+      departureDate, returnDate, destination, and purpose.
+
+  - id: travel-expense-traveldetails-type
+    description: "travelDetails must be an object"
+    when:
+      method: POST
+      path: /travelExpense
+    field_type:
+      travelDetails: object
+    message: >
+      'travelDetails' must be an object: {departureDate, returnDate,
+      destination, purpose, isDayTrip}.
+
+  # ── Order: deliveryDate recommended ───────────────────────────
+  - id: order-deliverydate
+    description: "POST /order needs deliveryDate"
+    when:
+      method: POST
+      path: /order
+    require_fields:
+      - deliveryDate
+    message: >
+      POST /order requires 'deliveryDate' (YYYY-MM-DD). Without it the
+      order cannot be invoiced properly.
+
+  # ── Invoice: invoiceDueDate ───────────────────────────────────
+  - id: invoice-duedate-required
+    description: "POST /invoice should have invoiceDueDate"
+    when:
+      method: POST
+      path: /invoice
+    require_fields:
+      - invoiceDueDate
+    message: >
+      POST /invoice requires 'invoiceDueDate' (YYYY-MM-DD) for proper
+      payment terms.
+
+  - id: invoice-duedate-format
+    description: "invoiceDueDate must be YYYY-MM-DD"
+    when:
+      method: POST
+      path: /invoice
+    field_format:
+      invoiceDueDate: "^\\d{4}-\\d{2}-\\d{2}$"
+    message: >
+      invoiceDueDate must be in YYYY-MM-DD format (e.g. 2026-04-04).
+
+  # ── Project PUT needs id + version ────────────────────────────
+  - id: project-put-id-version
+    description: "PUT /project needs id and version in body"
+    when:
+      method: PUT
+      path_pattern: "^/project/\\d+$"
+    require_fields:
+      - id
+      - version
+    message: >
+      PUT /project requires 'id' and 'version' in the body. First GET
+      the project to find the current version number.
+
+  # ── Supplier Invoice: postings must use amountGross ──────────
+  # Note: auto-fix in main.py renames amount→amountGross automatically.
+  # This rule reminds GPT in case the auto-fix ever misses it.
+  # We cannot validate inside array items with current rule engine,
+  # so this is documented here for reference only.
