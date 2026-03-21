@@ -92,8 +92,8 @@ def main():
             print("Usage: --file <path>")
             sys.exit(1)
     else:
-        # Default: scan all .txt files in test_suite/logs/
-        log_files = sorted(LOGS_DIR.glob("*.txt"))
+        # Default: scan all .txt files in test_suite/logs/ (recursively)
+        log_files = sorted(LOGS_DIR.glob("**/*.txt"))
         if not log_files:
             print(f"No .txt files in {LOGS_DIR}")
             print("Save Cloud Run logs there, then re-run this script.")
