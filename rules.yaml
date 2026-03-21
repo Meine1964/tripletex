@@ -1031,3 +1031,192 @@ rules:
     message: >
       'month' on salary transaction must be 1-12 (current month number).
       Not 0, not 13+.
+
+  # ════════════════════════════════════════════════════════════════
+  #  NEW RULES — discovered from log analysis (34 logs, 2026-03-21)
+  # ════════════════════════════════════════════════════════════════
+
+  # ── Employment Details: reject wrong percentage field names ───
+  - id: employment-details-no-percentOfFullTime
+    description: "Reject wrong field name percentOfFullTimeEquivalent"
+    when:
+      method: POST
+      path: /employee/employment/details
+    reject_fields:
+      - percentOfFullTimeEquivalent
+    message: >
+      Wrong field name! Use 'percentageOfFullTimeEquivalent' (NOT
+      'percentOfFullTimeEquivalent'). The correct field is
+      percentageOfFullTimeEquivalent = 100.0 for full-time.
+
+  - id: employment-details-no-percent
+    description: "Reject wrong field name 'percent' on employment details"
+    when:
+      method: POST
+      path: /employee/employment/details
+    reject_fields:
+      - percent
+    message: >
+      Wrong field name! Use 'percentageOfFullTimeEquivalent' (NOT 'percent').
+
+  - id: employment-details-no-percentEmployed
+    description: "Reject wrong field name 'percentEmployed' on employment details"
+    when:
+      method: POST
+      path: /employee/employment/details
+    reject_fields:
+      - percentEmployed
+    message: >
+      Wrong field name! Use 'percentageOfFullTimeEquivalent' (NOT
+      'percentEmployed').
+
+  - id: employment-details-put-no-percentOfFullTime
+    description: "Reject wrong field name percentOfFullTimeEquivalent on PUT"
+    when:
+      method: PUT
+      path_pattern: "^/employee/employment/details/\\d+$"
+    reject_fields:
+      - percentOfFullTimeEquivalent
+    message: >
+      Wrong field name! Use 'percentageOfFullTimeEquivalent' (NOT
+      'percentOfFullTimeEquivalent').
+
+  # ── Employment Details: enum fields must be integers ──────────
+  - id: employment-details-employmentType-type
+    description: "employmentType must be an integer (0-5)"
+    when:
+      method: POST
+      path: /employee/employment/details
+    field_type:
+      employmentType: number
+    message: >
+      employmentType must be an INTEGER: 0=NOT_CHOSEN, 1=ORDINARY,
+      2=MARITIME, 3=FREELANCE, 4=CREATIVE, 5=OFFICER.
+
+  - id: employment-details-remunerationType-type
+    description: "remunerationType must be an integer (0-5)"
+    when:
+      method: POST
+      path: /employee/employment/details
+    field_type:
+      remunerationType: number
+    message: >
+      remunerationType must be an INTEGER: 0=NOT_CHOSEN, 1=MONTHLY_PAY,
+      2=HOURLY_PAY, 3=COMMISSIONED, 4=FEE, 5=PIECEWORK_PAY.
+
+  - id: employment-details-employmentForm-type
+    description: "employmentForm must be an integer (0-2)"
+    when:
+      method: POST
+      path: /employee/employment/details
+    field_type:
+      employmentForm: number
+    message: >
+      employmentForm must be an INTEGER: 0=NOT_CHOSEN, 1=PERMANENT,
+      2=TEMPORARY.
+
+  - id: employment-details-workingHoursScheme-type
+    description: "workingHoursScheme must be an integer (0-6)"
+    when:
+      method: POST
+      path: /employee/employment/details
+    field_type:
+      workingHoursScheme: number
+    message: >
+      workingHoursScheme must be an INTEGER: 0=NOT_CHOSEN, 1=NON_SHIFT,
+      2=ROUND_THE_CLOCK, 3=SHIFT_365, 4=OFFSHORE_336, 5=CONTINUOUS,
+      6=OTHER_SHIFT.
+
+  # ── GET endpoints that require date params ────────────────────
+  - id: get-timesheet-dates
+    description: "GET /timesheet/entry requires dateFrom and dateTo"
+    when:
+      method: GET
+      path: /timesheet/entry
+    require_params:
+      - dateFrom
+      - dateTo
+    message: >
+      GET /timesheet/entry requires dateFrom and dateTo query params
+      (YYYY-MM-DD format). Without them the API returns a 422 error.
+
+  - id: get-voucher-dates
+    description: "GET /ledger/voucher requires dateFrom and dateTo"
+    when:
+      method: GET
+      path: /ledger/voucher
+    require_params:
+      - dateFrom
+      - dateTo
+    message: >
+      GET /ledger/voucher requires dateFrom and dateTo query params
+      (YYYY-MM-DD format). Without them you get a validation error.
+
+  # ── Supplier Invoice: reject accountingDimensionValue ─────────
+  - id: supplier-invoice-no-accountingDimValue
+    description: "accountingDimensionValue doesn't exist on voucher postings"
+    when:
+      method: POST
+      path: /supplierInvoice
+    reject_fields:
+      - voucher.postings.accountingDimensionValue
+    message: >
+      accountingDimensionValue does NOT exist on voucher posting model.
+      Remove it. Use the dedicated dimension endpoints instead.
+
+  - id: voucher-no-accountingDimValue
+    description: "accountingDimensionValue doesn't exist on voucher postings"
+    when:
+      method: POST
+      path: /ledger/voucher
+    reject_fields:
+      - postings.accountingDimensionValue
+    message: >
+      accountingDimensionValue does NOT exist on voucher posting model.
+      Remove it.
+
+  # ── Supplier Invoice: amount field naming ─────────────────────
+  - id: supplier-invoice-posting-amountGross
+    description: "Supplier invoice postings use amountGross, not amount"
+    when:
+      method: POST
+      path: /supplierInvoice
+    reject_fields:
+      - voucher.postings.amount
+    message: >
+      Supplier invoice voucher postings use 'amountGross' and
+      'amountGrossCurrency', NOT 'amount' or 'amountCurrency'.
+
+  # ── Block PUT on supplierInvoice (use POST) ──────────────────
+  - id: supplier-invoice-no-put
+    description: "PUT /supplierInvoice is not valid — use POST"
+    when:
+      method: PUT
+      path: /supplierInvoice
+    require_fields:
+      - _use_post_not_put
+    message: >
+      PUT /supplierInvoice is not valid. Use POST /supplierInvoice to
+      create supplier invoices.
+
+  # ── Invoice: date format for dueDate ──────────────────────────
+  - id: invoice-duedate-type
+    description: "invoiceDueDate must be a string date"
+    when:
+      method: POST
+      path: /invoice
+    field_type:
+      invoiceDueDate: string
+    message: >
+      invoiceDueDate must be a date string in YYYY-MM-DD format.
+
+  - id: supplier-invoice-duedate-type
+    description: "invoiceDueDate must be a string date on supplier invoice"
+    when:
+      method: POST
+      path: /supplierInvoice
+    field_type:
+      invoiceDueDate: string
+    message: >
+      invoiceDueDate must be a date string in YYYY-MM-DD format.
+      Make sure the date is valid (e.g. Feb has max 28/29 days).
