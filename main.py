@@ -356,7 +356,7 @@ KEY ENDPOINTS:
 - GET /travelExpense/paymentType — list payment types (usually just "Privat utlegg")
 - GET /travelExpense/rateCategory — list per diem rate categories (filter by year and domestic/foreign)
 - GET /activity — list available activities (e.g. "Fakturerbart arbeid", "Administrasjon")
-- GET/POST /timesheet/entry — time entries. GET needs dateFrom+dateTo params. POST: {employee:{id}, project:{id}, activity:{id}, date, hours, comment}
+- GET/POST /timesheet/entry — time entries. GET needs dateFrom+dateTo params. POST: {employee:{id}, project:{id}, activity:{id}, date, hours, hourlyRate, chargeable:true, comment}. ALWAYS set hourlyRate and chargeable:true!
 - GET/POST /project/hourlyRates — hourly rates per project. GET needs projectId param.
 - GET/POST/DELETE /ledger/voucher — journal entries with postings. GET requires dateFrom+dateTo params. Use fields=* to embed postings in response (avoid fetching individual postings).\n- GET /ledger/posting — individual posting lookup (AVOID — use GET /ledger/voucher?fields=* instead to get all postings embedded)
 - GET /ledger/account — chart of accounts
@@ -453,7 +453,8 @@ Step 1: Find the overdue invoice.
 
 Step 2: Post the reminder fee as a journal voucher.
   The task will specify which accounts to debit/credit (e.g. debit 1500 Kundefordringer, credit 3400).
-  Look up account IDs: GET /ledger/account with params={"number":"1500"}
+  Look up account IDs: GET /ledger/account with params={"number":"1500"} and GET /ledger/account with params={"number":"3400"}
+  CRITICAL: Before using any account, check "isInactive" — do NOT use inactive accounts! If account 3400 is inactive, look for 3900 (Annen driftsinntekt) instead.
   POST /ledger/voucher with TWO balanced postings (sum to zero).
   IMPORTANT: Account 1500 (Kundefordringer) is a CUSTOMER ledger type — postings on it REQUIRE "customer": {"id": CUSTOMER_ID}.
   Example: {"row":1,"date":"...","amountGross":70,"amountGrossCurrency":70,"account":{"id":ACC_1500_ID},"customer":{"id":CUST_ID},"vatType":{"id":0}}
@@ -462,7 +463,9 @@ Step 2: Post the reminder fee as a journal voucher.
 Step 3: Create an invoice for the reminder fee.
   CRITICAL: Reminder fees (purregebyr) are VAT-EXEMPT in Norway!
   When creating the product for a reminder fee:
-  a. First GET /ledger/vatType — find the 0% VAT type. Look for name containing "Avgiftsfri" or "Fritatt" or percentage=0.
+  a. First GET /ledger/vatType — find the 0% VAT type. Look for name containing "Avgiftsfri" or "Fritatt" or "Ingen" or percentage=0 AND number=6.
+     IMPORTANT: vatType number 6 is typically "Avgiftsfri utførsel" (0% VAT). Use its "id" field.
+     Do NOT use vatType id=3 or id=5 — those are 25% VAT types!
   b. POST /product with: {"name":"Purregebyr","priceExcludingVatCurrency":FEE_AMOUNT,"vatType":{"id":ZERO_VAT_ID}}
   c. The invoice total should equal the fee amount (NO VAT added). If fee is 70 NOK, invoice total must be 70 NOK.
   Then create order → orderline → invoice as usual.
@@ -681,6 +684,7 @@ PROJECT WORKFLOW:
   * customer:{id:X} (REQUIRED if the task mentions the project is linked/connected to a customer!)
   * endDate (if given)
 - CRITICAL: If the task says project is linked/connected/associated with a customer, you MUST include customer:{id:X}.
+- CRITICAL: customer:{id:X} must use the ID returned from POST /customer (the "id" field in the response). Do NOT use the organizationNumber, do NOT use any companyId or company ID — those are different!
 - CRITICAL: startDate is REQUIRED. Always include it.
 - If project number is already taken (422 error), pick a completely different random number (new random digits).
 - FIXED-PRICE PROJECT fields: To set a fixed price on a project, use "fixedprice" (ALL LOWERCASE, no camelCase!) and "isFixedPrice": true.
@@ -707,8 +711,13 @@ Step 3: Create the project WITH fixed price fields.
   CRITICAL: "fixedprice" is ALL LOWERCASE. "isFixedPrice" has a capital F and P (Boolean).
 
 Step 4: Create the milestone invoice.
-  Calculate milestone amount: fixedprice * (percentage / 100).
-  Example: 50% of 274950 = 137475 NOK. This IS the total invoice amount INCLUDING VAT.
+  Calculate milestone amount CAREFULLY: milestoneAmount = fixedprice × percentage ÷ 100.
+  DOUBLE-CHECK YOUR MATH! Common mistakes: using wrong fixedprice, dividing instead of multiplying, rounding errors.
+  Examples:
+  - 50% of 274950 = 274950 × 50 ÷ 100 = 137475 NOK
+  - 33% of 365950 = 365950 × 33 ÷ 100 = 120763.50 NOK
+  - 25% of 500000 = 500000 × 25 ÷ 100 = 125000 NOK
+  This milestone amount IS the total invoice amount INCLUDING VAT.
   CRITICAL: The milestone amount is what the customer pays (VAT-inclusive). You must back-calculate the ex-VAT price!
   a. GET /ledger/vatType — find the OUTGOING ("Utgående") 25% VAT type. Look for name containing "Utgående" and percentage=25. Use its "id" field (NOT the "number" field).
   b. POST /product — name like "Delbetaling - PROJECT_NAME", priceExcludingVatCurrency = milestoneAmount / 1.25 (to make total INCLUDING 25% VAT equal the milestone amount). vatType:{"id": THE_ID_FROM_STEP_A}.
@@ -738,7 +747,8 @@ Step 4: Create the project.
   If task mentions "budsjett"/"budget" → set isFixedPrice:true, fixedprice:AMOUNT (lowercase!).
 
 Step 5: Register timesheet entries for each employee.
-  POST /timesheet/entry with employee:{id}, project:{id}, activity:{id}, date, hours.
+  POST /timesheet/entry with employee:{id}, project:{id}, activity:{id}, date, hours, hourlyRate:RATE, chargeable:true.
+  CRITICAL: Always include hourlyRate (from task) and chargeable:true — otherwise hours are unbillable!
   First GET /activity to find a project activity (look for isProjectActivity:true, e.g. "Fakturerbart arbeid").
 
 Step 6: Register supplier costs (if applicable).
@@ -844,16 +854,23 @@ Step 4: Look up activities.
   - "Prosjektadministrasjon" = project administration
   Use the activity whose name best matches the task description.
 
-Step 5: Register time entries.
-  POST /timesheet/entry with body:
-  {"employee": {"id": EMP_ID}, "project": {"id": PROJ_ID}, "activity": {"id": ACTIVITY_ID}, "date": "{today}", "hours": HOURS, "comment": "DESCRIPTION"}
-  This registers the worked hours on the project.
+Step 5: Set project hourly rates and register time entries.
+  a. POST /project/hourlyRates with body:
+     {"project": {"id": PROJ_ID}, "employee": {"id": EMP_ID}, "activity": {"id": ACTIVITY_ID}, "hourlyRate": RATE}
+     This sets the billing rate for this employee+activity on the project. RATE = the hourly rate from the task description.
+     If this fails, continue — the hourlyRate on the timesheet entry itself is more important.
+  b. POST /timesheet/entry with body:
+     {"employee": {"id": EMP_ID}, "project": {"id": PROJ_ID}, "activity": {"id": ACTIVITY_ID}, "date": "{today}", "hours": HOURS, "hourlyRate": RATE, "chargeable": true, "comment": "DESCRIPTION"}
+     CRITICAL: Always set "hourlyRate" to the rate from the task (e.g. 500 for "500 NOK/time").
+     CRITICAL: Always set "chargeable": true — otherwise the hours won't appear on invoices!
+     If hourlyRate is rejected, try without it but still set chargeable: true.
 
 Step 6: Create the invoice via order chain.
   a. GET /ledger/vatType — find outgoing VAT type (25% "Utgående"). If no VAT works, skip vatType.
-  b. POST /product — name based on activity, priceExcludingVatCurrency = hourly rate, vatType:{id}
+  b. POST /product — name based on activity, priceExcludingVatCurrency = hourly rate from task, vatType:{id}
   c. POST /order — customer:{id}, orderDate, deliveryDate, project:{id}
   d. POST /order/orderline — order:{id}, product:{id}, count = number of hours
+     The total should equal: hours × hourlyRate (excl. VAT)
   e. POST /invoice — invoiceDate, invoiceDueDate, orders:[{id}]
 
 Step 7: Call done().
