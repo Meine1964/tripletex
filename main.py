@@ -407,6 +407,7 @@ PAYMENT WORKFLOW (for "payment" / "betaling" / "Zahlung" tasks):
 1. FIRST search for the existing invoice: GET /invoice with params={"invoiceDateFrom":"2000-01-01","invoiceDateTo":"2030-12-31"}
    IMPORTANT: Use the params field, NOT query string in the path! Use the EXACT wide date range above!
 2. Find the matching invoice by customer name or amount. Note the invoice's "amount" or "amountCurrency" field — this is the TOTAL INCLUDING VAT.
+   CRITICAL: When multiple invoices are returned, you MUST verify the correct invoice belongs to the right customer! Check the customer name/org number. Do NOT just use the first invoice returned!
 3. GET /invoice/paymentType — find the CORRECT payment type based on the task description:
    - If the task mentions "bank" / "banco" / "banque" / "Bank" / "konto" / "overføring" / "transferencia" / "virement" / "Überweisung" / "transfer" → use "Betalt til bank" (bank payment)
    - If the task mentions "cash" / "kontant" / "efectivo" / "espèces" / "Bargeld" / "contanti" → use "Kontant" (cash)
@@ -520,9 +521,12 @@ Step 4: Reverse prepaid expenses.
 
 Step 5: Calculate and post tax provision (if requested).
   Look up accounts 8700 (tax expense) and 2920 (tax payable).
+  If account 8700 does NOT exist, search for alternatives: try 8300 (Skattekostnad), or any account in 8300-8799 range with "skatt" or "tax" in the name.
+  If account 2920 does NOT exist, try 2500 (Betalbar skatt) or 2900-2999 range.
   Calculate: taxable_profit = sum of all income − sum of all expenses (approximate from the task context).
   Tax amount = taxable_profit × 0.22 (Norwegian 22% corporate tax).
-  POST /ledger/voucher: Debit 8700 (tax expense), Credit 2920 (tax payable).
+  POST /ledger/voucher: Debit tax expense account, Credit tax payable account.
+  CRITICAL: Do NOT skip the tax provision step even if the account number doesn't exist — search for alternatives!
 
 IMPORTANT: Complete ALL steps in the task! Do not call done() until depreciation, prepaid reversal, AND tax provision are all posted.
 
@@ -966,6 +970,7 @@ Step 2: Look up VAT types and accounts.
     tripletex_api(method="GET", path="/ledger/account", params={"number": "6590"})
   Common expense accounts: 6100-6999 (office/admin), 4000-4999 (goods), 7000-7999 (other expenses).
   ALWAYS look up account IDs first. Use {"id": X} not {"number": X} in POST bodies.
+  CRITICAL: Account NUMBERS (like 2400, 6340) are NOT the same as account IDs! You MUST call GET /ledger/account?number=2400 to find the actual ID. Using NUMBER as ID will cause silent failures!
 
 Step 3: Calculate amounts.
   If the task says "65850 NOK including VAT" with 25% VAT:
@@ -2022,10 +2027,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         if "vatType" not in p:
                             p["vatType"] = {"id": 0}
                             print(f"    │  [fix] voucher posting[{idx}]: added vatType={{id:0}}", flush=True)
-                        # Strip accountingDimensionValue — not a valid field on voucher postings
-                        if "accountingDimensionValue" in p:
-                            p.pop("accountingDimensionValue")
-                            print(f"    │  [fix] voucher posting[{idx}]: stripped accountingDimensionValue (not supported)", flush=True)
+                        # Keep accountingDimensionValue if present — it IS supported on voucher postings
 
                 # Auto-fix: POST /employee/employment/details — ensure employment ref + defaults
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment/details"
