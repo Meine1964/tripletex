@@ -591,8 +591,11 @@ Step 2: Look up VAT types and accounts.
   GET /ledger/vatType — find the INCOMING/INPUT VAT type for the given percentage.
   For 25% input VAT: look for name containing "Inngående" or "Fradrag inngående" with percentage=25.
   Note the "id" — do NOT use the "number" field.
-  GET /ledger/account — look up the expense account ID (e.g. account 6590) by using ?number=6590.
-  ALWAYS look up account IDs first. Use {"id": X} not {"number": X}.
+  GET /ledger/account with params: {"number": "6590"} — look up the expense account by its number.
+  CRITICAL: Use the "params" field for query parameters, NOT a "query" field! Example:
+    tripletex_api(method="GET", path="/ledger/account", params={"number": "6590"})
+  Common expense accounts: 6100-6999 (office/admin), 4000-4999 (goods), 7000-7999 (other expenses).
+  ALWAYS look up account IDs first. Use {"id": X} not {"number": X} in POST bodies.
 
 Step 3: Calculate amounts.
   If the task says "65850 NOK including VAT" with 25% VAT:
@@ -1069,6 +1072,16 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "TASK TYPE: Credit note.\n"
                                 "Check: original invoice found, credit note created referencing it, date set.\n"
                             )
+                        elif any(kw in _pl for kw in ["leverandorfaktura", "leverandørfaktura", "supplier invoice", "eingangsrechnung", "facture reçue", "factura de proveedor"]):
+                            _task_checks = (
+                                "TASK TYPE: Supplier invoice.\n"
+                                "Check these SPECIFIC things:\n"
+                                "- Supplier created with correct name and org number?\n"
+                                "- Correct expense account used (typically 4000-7999 range, NOT 1000-range asset accounts)?\n"
+                                "- Correct input VAT type (inngående MVA, typically vatType 1 for 25%)?\n"
+                                "- Invoice amounts NOT zero — if amount=0 or amountCurrency=0 in the response, the postings were WRONG\n"
+                                "- Invoice number, date, due date match the PDF/task?\n"
+                            )
 
                         verify_prompt = (
                             f"TASK: {prompt}\n\n"
@@ -1079,7 +1092,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             "(e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)\n"
                             "2. COMPLETENESS: All steps in the task done? (create, invoice, send, pay, etc.) "
                             "IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!\n"
-                            "3. DATA: Names, org numbers, dates match the task?\n\n"
+                            "3. DATA: Names, org numbers, dates match the task?\n"
+                            "4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently.\n\n"
                             "Reply ONLY with either:\n"
                             "- 'PASS' if everything looks correct\n"
                             "- 'FAIL: <specific issue>' if something is wrong"
@@ -1122,6 +1136,16 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 return diag
 
             if name == "tripletex_api":
+                # Auto-fix: GPT sometimes puts query params in a 'query' field instead of 'params'
+                if args.get("query") and isinstance(args["query"], str) and args["query"].startswith("?"):
+                    from urllib.parse import parse_qs
+                    qs = args.pop("query").lstrip("?")
+                    parsed = parse_qs(qs, keep_blank_values=True)
+                    extracted = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
+                    if args.get("params") is None:
+                        args["params"] = {}
+                    args["params"].update(extracted)
+                    print(f"    │  [fix] moved query string → params: {extracted}", flush=True)
                 # Auto-fix: GPT sometimes uses wrong field names instead of "body"
                 req_body = args.get("body")
                 if not req_body:
