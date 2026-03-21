@@ -335,6 +335,31 @@ rules:
     message: >
       POST /employee/employment requires employee.id and startDate.
 
+  - id: employment-require-division
+    description: "POST /employee/employment needs division for salary to work"
+    when:
+      method: POST
+      path: /employee/employment
+    require_fields:
+      - division.id
+    message: >
+      POST /employee/employment requires division.id. Without it, salary
+      transactions will fail with 'Arbeidsforholdet er ikke knyttet mot
+      en virksomhet'. GET /company/>withLoginAccess to find the company ID
+      and use it as division:{id}.
+
+  - id: employment-no-division-on-put
+    description: "PUT /employee/employment cannot change division"
+    when:
+      method: PUT
+      path_pattern: "^/employee/employment/\\d+"
+    reject_fields:
+      - division
+    message: >
+      PUT /employee/employment cannot change the division — it returns
+      'Virksomheten kan ikke endres'. Division must be set at creation
+      time in POST /employee/employment.
+
   # ── GET /invoice requires date range params ───────────────────
   - id: invoice-get-date-params
     description: "GET /invoice requires invoiceDateFrom and invoiceDateTo"
