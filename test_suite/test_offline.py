@@ -265,6 +265,120 @@ def test_credit_note_rules():
                      params={}, rule_id="creditnote-date")
 
 
+# ── 10. New rules from log analysis (occupation, maritime, hourlyRate) ──
+def test_new_log_analysis_rules():
+    print("\n── New Log-Analysis Rules ──")
+
+    # occupationCode id=0 should be rejected on POST
+    expect_violation("occupation-code-zero-post", "POST", "/employee/employment/details",
+                     body={"employment": {"id": 1}, "date": "2026-03-01",
+                           "employmentType": 1, "employmentForm": 1,
+                           "remunerationType": 1, "workingHoursScheme": 1,
+                           "percentageOfFullTimeEquivalent": 100.0,
+                           "annualSalary": 500000,
+                           "occupationCode": {"id": 0}},
+                     rule_id="employment-details-no-occupation-zero")
+
+    # occupationCode id=0 should be rejected on PUT
+    expect_violation("occupation-code-zero-put", "PUT", "/employee/employment/details/12345",
+                     body={"id": 12345, "version": 0,
+                           "employment": {"id": 1}, "date": "2026-03-01",
+                           "occupationCode": {"id": 0}},
+                     rule_id="employment-details-put-no-occupation-zero")
+
+    # Valid occupationCode id should pass
+    expect_pass("occupation-code-valid-post", "POST", "/employee/employment/details",
+                body={"employment": {"id": 1}, "date": "2026-03-01",
+                      "employmentType": 1, "employmentForm": 1,
+                      "remunerationType": 1, "workingHoursScheme": 1,
+                      "percentageOfFullTimeEquivalent": 100.0,
+                      "annualSalary": 500000, "hourlyRate": 250,
+                      "occupationCode": {"id": 15}})
+
+    # GET /occupationCode without ?name= should be rejected
+    expect_violation("occupation-code-no-filter", "GET", "/employee/employment/occupationCode",
+                     params={}, rule_id="occupation-code-require-name-filter")
+
+    # GET /occupationCode with ?name= should pass
+    expect_pass("occupation-code-with-filter", "GET", "/employee/employment/occupationCode",
+                params={"name": "utvikler"})
+
+    # maritimeEmployment field should be rejected on POST
+    expect_violation("maritime-on-post", "POST", "/employee/employment/details",
+                     body={"employment": {"id": 1}, "date": "2026-03-01",
+                           "employmentType": 1, "employmentForm": 1,
+                           "remunerationType": 1, "workingHoursScheme": 1,
+                           "percentageOfFullTimeEquivalent": 100.0,
+                           "annualSalary": 500000, "hourlyRate": 250,
+                           "maritimeEmployment": {"shipRegister": "NIS"}},
+                     rule_id="employment-details-no-maritime-unless-type2")
+
+    # POST /timesheet/entry without hourlyRate should be rejected
+    expect_violation("timesheet-no-hourlyrate", "POST", "/timesheet/entry",
+                     body={"employee": {"id": 1}, "project": {"id": 2},
+                           "activity": {"id": 3}, "date": "2026-03-21",
+                           "hours": 8},
+                     rule_id="timesheet-hourlyrate-required")
+
+    # POST /timesheet/entry with hourlyRate should pass
+    expect_pass("timesheet-with-hourlyrate", "POST", "/timesheet/entry",
+                body={"employee": {"id": 1}, "project": {"id": 2},
+                      "activity": {"id": 3}, "date": "2026-03-21",
+                      "hours": 8, "hourlyRate": 1000})
+
+
+# ── 11. reject_field_values engine feature ──────────────────────────
+def test_reject_field_values_engine():
+    print("\n── reject_field_values Engine ──")
+
+    # Test that the engine correctly rejects specific field values
+    # occupationCode.id=0 is a real rule using this feature
+    v = validate_tool_call("POST", "/employee/employment/details",
+                           body={"employment": {"id": 1}, "date": "2026-03-01",
+                                 "employmentType": 1, "employmentForm": 1,
+                                 "remunerationType": 1, "workingHoursScheme": 1,
+                                 "percentageOfFullTimeEquivalent": 100.0,
+                                 "annualSalary": 500000,
+                                 "occupationCode": {"id": 0}})
+    if any("occupation" in x.lower() and "0" in x for x in v):
+        ok("reject_field_values catches occupationCode.id=0")
+    else:
+        fail("reject_field_values catches occupationCode.id=0", f"Got: {v}")
+
+    # Non-zero occupationCode should not trigger
+    v2 = validate_tool_call("POST", "/employee/employment/details",
+                            body={"employment": {"id": 1}, "date": "2026-03-01",
+                                  "employmentType": 1, "employmentForm": 1,
+                                  "remunerationType": 1, "workingHoursScheme": 1,
+                                  "percentageOfFullTimeEquivalent": 100.0,
+                                  "annualSalary": 500000, "hourlyRate": 250,
+                                  "occupationCode": {"id": 42}})
+    occupation_violations = [x for x in v2 if "occupation" in x.lower() and "=0" in x]
+    if not occupation_violations:
+        ok("reject_field_values allows occupationCode.id=42")
+    else:
+        fail("reject_field_values allows occupationCode.id=42", f"Got: {occupation_violations}")
+
+
+# ── 12. System prompt employment guidance ───────────────────────────
+def test_employment_prompt_guidance():
+    print("\n── Employment Prompt Guidance ──")
+    prompt = SYSTEM_PROMPT_TEMPLATE
+
+    checks = [
+        ("warns against occupationCode", "Do NOT include occupationCode unless"),
+        ("warns against shiftDurationHours", "Do NOT include \"shiftDurationHours\""),
+        ("warns against fetching all occupation codes", "NEVER fetch ALL occupation codes"),
+        ("minimal fields retry guidance", "try again with ONLY"),
+    ]
+
+    for name, substring in checks:
+        if substring in prompt:
+            ok(name)
+        else:
+            fail(name, f"Missing '{substring}' in system prompt")
+
+
 # ── Main ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("=" * 60)
@@ -280,6 +394,9 @@ if __name__ == "__main__":
     test_cases_loadable()
     test_action_endpoint_rules()
     test_credit_note_rules()
+    test_new_log_analysis_rules()
+    test_reject_field_values_engine()
+    test_employment_prompt_guidance()
 
     print(f"\n{'=' * 60}")
     print(f"  RESULTS: {passed} passed, {failed} failed")
