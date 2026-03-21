@@ -4,7 +4,6 @@ import json
 import os
 import re
 import sys
-import threading
 import time
 from datetime import datetime, timezone
 
@@ -1234,6 +1233,14 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             req_body = args.pop(alt)
                             print(f"    │  [fix] moved {alt} → body", flush=True)
                             break
+                # Auto-fix: GET with body → move to params (body is ignored on GET)
+                if args["method"] == "GET" and req_body and isinstance(req_body, dict):
+                    if args.get("params") is None:
+                        args["params"] = {}
+                    args["params"].update(req_body)
+                    print(f"    │  [fix] GET body → params: {req_body}", flush=True)
+                    req_body = None
+                    args.pop("body", None)
                 # Auto-fix: reject POST without body (except for action endpoints)
                 if args["method"] == "POST" and not req_body and '/:' not in args["path"]:
                     err_msg = (f"ERROR: POST {args['path']} requires a JSON body but you sent none. "
@@ -1603,12 +1610,11 @@ async def solve(request: Request):
         hint_words = re.sub(r'[^\w\s]', '', prompt[:60]).split()[:4]
         hint = "_".join(hint_words).lower() if hint_words else "task"
         log_filename = f"{ts_file}_{hint}.log"
-        # Push in background thread so we don't delay the response
-        threading.Thread(
-            target=push_log_to_github,
-            args=(log_text, log_filename),
-            daemon=True,
-        ).start()
+        # Push synchronously (short timeout) so log is saved before Cloud Run kills the instance
+        try:
+            push_log_to_github(log_text, log_filename)
+        except Exception as e:
+            print(f"  ⚠ Log push failed: {e}", flush=True)
 
     return JSONResponse({
         "status": "completed" if diag.get("done") else "incomplete",
