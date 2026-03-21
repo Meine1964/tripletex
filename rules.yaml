@@ -541,3 +541,129 @@ rules:
       departmentNumber: string
     message: >
       'departmentNumber' on POST /department must be a string, not a number.
+
+  # ── Supplier Invoice: dueDate required ────────────────────────
+  - id: supplier-invoice-duedate
+    description: "POST /supplierInvoice needs dueDate"
+    when:
+      method: POST
+      path: /supplierInvoice
+    require_fields:
+      - dueDate
+    message: >
+      POST /supplierInvoice requires 'dueDate' (YYYY-MM-DD). Without it
+      the invoice is incomplete and may be rejected.
+
+  # ── Supplier Invoice: voucher needs postings array ────────────
+  - id: supplier-invoice-voucher-postings
+    description: "Supplier invoice voucher must contain a postings array"
+    when:
+      method: POST
+      path: /supplierInvoice
+    require_fields:
+      - voucher.postings
+    message: >
+      POST /supplierInvoice requires voucher.postings array with at least
+      2 postings (one debit expense account 4000-7999, one credit AP 2400).
+      A single posting results in amount=0.
+
+  # ── Product: vatType must be object ───────────────────────────
+  - id: product-vattype-type
+    description: "Product vatType must be an object with id, not a string"
+    when:
+      method: POST
+      path: /product
+    field_type:
+      vatType: object
+    message: >
+      'vatType' on POST /product must be an object like {"id": VAT_TYPE_ID},
+      not a string like "25%". Look up VAT types via GET /ledger/vatType
+      first.
+
+  # ── Product: priceExcludingVatCurrency type ───────────────────
+  - id: product-price-type
+    description: "Product price must be a number"
+    when:
+      method: POST
+      path: /product
+    field_type:
+      priceExcludingVatCurrency: number
+    message: >
+      'priceExcludingVatCurrency' on POST /product must be a number,
+      not a string.
+
+  # ── Timesheet: hours must be number ───────────────────────────
+  - id: timesheet-hours-type
+    description: "Timesheet hours must be a number"
+    when:
+      method: POST
+      path: /timesheet/entry
+    field_type:
+      hours: number
+    message: >
+      'hours' on POST /timesheet/entry must be a number (e.g. 7.5),
+      not a string.
+
+  # ── Order Line: count must be number ──────────────────────────
+  - id: orderline-count-type
+    description: "Order line count must be a number"
+    when:
+      method: POST
+      path: /order/orderline
+    field_type:
+      count: number
+    message: >
+      'count' on POST /order/orderline must be a number (e.g. 1),
+      not a string.
+
+  # ── Invoice: reject sendMethod (wrong field name) ─────────────
+  - id: invoice-send-no-sendMethod
+    description: "Invoice send uses sendType, NOT sendMethod"
+    when:
+      method: PUT
+      path_pattern: "^/invoice/\\d+/:send$"
+    reject_fields:
+      - sendMethod
+    message: >
+      Wrong field name! Use 'sendType' (not 'sendMethod') in params.
+      Correct: params={"sendType":"EMAIL"}.
+
+  # ── Salary: POST /salary/specification does not exist ─────────
+  # NOTE: This endpoint is also blocked by inline auto-fix in main.py.
+  # This rule acts as documentation. The require_fields will always
+  # trigger because the field won't exist.
+  - id: salary-specification-blocked
+    description: "POST /salary/specification does not exist"
+    when:
+      method: POST
+      path: /salary/specification
+    require_fields:
+      - _endpoint_does_not_exist
+    message: >
+      ENDPOINT DOES NOT EXIST. POST /salary/specification is not a valid
+      Tripletex endpoint. Include specifications inline in
+      POST /salary/transaction payslips array:
+      payslips=[{"employee":{"id":X},"specifications":[{"salaryType":{"id":Y},"amount":Z}]}].
+
+  # ── Salary: payslip specs need salaryType ─────────────────────
+  - id: salary-year-type
+    description: "Salary year must be a number"
+    when:
+      method: POST
+      path: /salary/transaction
+    field_type:
+      year: number
+    message: >
+      'year' on POST /salary/transaction must be a number (e.g. 2026),
+      not a string.
+
+  - id: salary-month-type
+    description: "Salary month must be a number"
+    when:
+      method: POST
+      path: /salary/transaction
+    field_type:
+      month: number
+    message: >
+      'month' on POST /salary/transaction must be a number (1-12),
+      not a string.

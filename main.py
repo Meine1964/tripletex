@@ -1423,16 +1423,22 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     body=req_body, params=args.get("params"),
                 )
                 # Extra: voucher postings must have ≥2 rows and sum to ~zero
-                if args["method"] == "POST" and args["path"].rstrip("/") == "/ledger/voucher" and req_body:
-                    postings = req_body.get("postings", [])
-                    if len(postings) < 2:
+                # Applies to /ledger/voucher AND /supplierInvoice (nested voucher.postings)
+                _voucher_postings = None
+                if args["method"] == "POST" and req_body:
+                    if args["path"].rstrip("/") == "/ledger/voucher":
+                        _voucher_postings = req_body.get("postings", [])
+                    elif args["path"].rstrip("/") == "/supplierInvoice":
+                        _voucher_postings = (req_body.get("voucher") or {}).get("postings", [])
+                if _voucher_postings is not None:
+                    if len(_voucher_postings) < 2:
                         violations.append(
                             "[voucher-min-postings] Voucher must have at least 2 postings "
                             "(one debit, one credit). A single posting will result in amount=0. "
                             "Add both a debit (positive) AND a credit (negative) posting that sum to zero."
                         )
-                    elif postings:
-                        total = sum(p.get("amount", 0) for p in postings)
+                    elif _voucher_postings:
+                        total = sum(p.get("amountGross", p.get("amount", 0)) for p in _voucher_postings)
                         if abs(total) > 0.01:
                             violations.append(
                                 f"[voucher-balance] Voucher postings must sum to zero but sum to {total}. "
