@@ -2801,30 +2801,34 @@ async def solve(request: Request, background_tasks: BackgroundTasks):
         # Save to in-memory store (always works, fastest retrieval)
         _MEMORY_LOGS[log_filename] = log_text
 
-    # Schedule log persistence in background so the HTTP response returns immediately
-    def _persist_log():
-        if not log_text or not log_filename:
-            return
-        # Save locally
+    # ── Persist logs BEFORE returning response ──────────────────────
+    # Cloud Run throttles CPU after HTTP response, so BackgroundTasks
+    # may never run. Do critical saves synchronously.
+    if log_text and log_filename:
+        # Save locally (fast, won't delay response)
         try:
             local_path = os.path.join(LOG_DIR, log_filename)
             with open(local_path, "w", encoding="utf-8") as lf:
                 lf.write(log_text)
         except Exception:
             pass
-        # Push to GCS (best-effort)
+        # Push to GCS (best-effort, ~100ms)
         try:
             push_log_to_gcs(log_text, log_filename)
         except Exception:
             pass
-        # Push to GitHub
+
+    # GitHub push can be background (less critical, has retries, takes longer)
+    def _push_github():
+        if not log_text or not log_filename:
+            return
         try:
             time.sleep(random.uniform(0.5, 2.0))
             push_log_to_github(log_text, log_filename)
         except Exception:
             pass
 
-    background_tasks.add_task(_persist_log)
+    background_tasks.add_task(_push_github)
 
     return JSONResponse({
         "status": "completed" if diag.get("done") else "incomplete",
