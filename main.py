@@ -12,7 +12,7 @@ import requests
 import urllib3
 import yaml
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from openai import OpenAI
 
@@ -1355,9 +1355,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
     for iteration in range(25):
         iter_start = time.time()
-        # Safety: stop 20s before Cloud Run's 300s timeout so we can still push logs
+        # Safety: stop before Cloud Run's 300s timeout (log push is now in background)
         elapsed_total = time.time() - agent_start
-        if elapsed_total > 260:
+        if elapsed_total > 280:
             print(f"\n  ⏰ TIME LIMIT — {elapsed_total:.0f}s elapsed, stopping to save log", flush=True)
             diag["errors"].append(f"Time limit reached at {elapsed_total:.0f}s")
             break
@@ -1438,7 +1438,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
             if name == "done":
                 elapsed = time.time() - agent_start
-                remaining = 280 - elapsed  # 300s timeout, 20s safety margin
+                remaining = 290 - elapsed  # 300s timeout, log push in background
                 # ── Post-execution verification (single LLM call) ──
                 if remaining > 15 and not diag.get("_verified"):
                     diag["_verified"] = True
@@ -2284,7 +2284,7 @@ async def get_log(filename: str):
 
 @app.post("/")
 @app.post("/solve")
-async def solve(request: Request):
+async def solve(request: Request, background_tasks: BackgroundTasks):
     body = await request.json()
 
     prompt = body.get("prompt", "")
@@ -2341,8 +2341,9 @@ async def solve(request: Request):
         print(f"  ✗ OUTER ERROR: {outer_err}", flush=True)
         diag["errors"] = diag.get("errors", []) + [str(outer_err)]
 
-    # Push log to GitHub (best-effort, non-blocking)
+    # Build log filename and save to memory (instant)
     log_text = log_capture.getvalue()
+    log_filename = None
     if log_text:
         ts_file = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S") + f"_{random.randint(1000, 9999)}"
         # Classify task type for a readable filename
@@ -2377,25 +2378,31 @@ async def solve(request: Request):
         log_filename = f"{ts_file}_{task_type}_{status}_{iters}iter_{short}.log"
         # Save to in-memory store (always works, fastest retrieval)
         _MEMORY_LOGS[log_filename] = log_text
-        # Save locally (always works, survives GitHub failures)
+
+    # Schedule log persistence in background so the HTTP response returns immediately
+    def _persist_log():
+        if not log_text or not log_filename:
+            return
+        # Save locally
         try:
             local_path = os.path.join(LOG_DIR, log_filename)
             with open(local_path, "w", encoding="utf-8") as lf:
                 lf.write(log_text)
-            print(f"  ✓ Log saved locally: {log_filename}", flush=True)
-        except Exception as e:
-            print(f"  ⚠ Local log save failed: {e}", flush=True)
-        # Push to GCS (best-effort, no concurrency conflicts)
+        except Exception:
+            pass
+        # Push to GCS (best-effort)
         try:
             push_log_to_gcs(log_text, log_filename)
-        except Exception as e:
-            print(f"  ⚠ GCS log push failed: {e}", flush=True)
-        # Push to GitHub (with random initial delay to avoid concurrent commits)
+        except Exception:
+            pass
+        # Push to GitHub
         try:
-            time.sleep(random.uniform(0.5, 3.0))  # Stagger pushes
+            time.sleep(random.uniform(0.5, 2.0))
             push_log_to_github(log_text, log_filename)
-        except Exception as e:
-            print(f"  ⚠ GitHub log push failed: {e}", flush=True)
+        except Exception:
+            pass
+
+    background_tasks.add_task(_persist_log)
 
     return JSONResponse({
         "status": "completed" if diag.get("done") else "incomplete",
