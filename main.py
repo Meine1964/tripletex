@@ -345,6 +345,35 @@ When a foreign-currency invoice is paid at a different exchange rate than when i
    - 8160 = "Valutatap" (foreign exchange loss / disagio)
    Do NOT use account 8080 (that's for financial instruments, not exchange rates).
 
+REMINDER / OVERDUE FEE WORKFLOW (for "reminder" / "purring" / "purregebyr" / "Mahnung" / "rappel" / "recordatorio" / "overdue" tasks):
+The task asks you to handle overdue invoices — typically: find the overdue invoice, post a reminder fee, create an invoice for it, and optionally register a partial payment.
+
+Step 1: Find the overdue invoice.
+  GET /invoice with params={"invoiceDateFrom":"2000-01-01","invoiceDateTo":"2030-12-31"}
+  Look for invoices where amountOutstanding > 0 or amountCurrencyOutstanding > 0.
+  An overdue invoice has invoiceDueDate BEFORE today's date AND outstanding amount > 0.
+
+Step 2: Post the reminder fee as a journal voucher.
+  The task will specify which accounts to debit/credit (e.g. debit 1500 Kundefordringer, credit 3400).
+  Look up account IDs: GET /ledger/account with params={"number":"1500"}
+  POST /ledger/voucher with TWO balanced postings (sum to zero).
+  IMPORTANT: Account 1500 (Kundefordringer) is a CUSTOMER ledger type — postings on it REQUIRE "customer": {"id": CUSTOMER_ID}.
+  Example: {"row":1,"date":"...","amount":70,"amountCurrency":70,"account":{"id":ACC_1500_ID},"customer":{"id":CUST_ID}}
+
+Step 3: Create an invoice for the reminder fee.
+  CRITICAL: Reminder fees (purregebyr) are VAT-EXEMPT in Norway!
+  When creating the product for a reminder fee:
+  a. First GET /ledger/vatType — find the 0% VAT type. Look for name containing "Avgiftsfri" or "Fritatt" or percentage=0.
+  b. POST /product with: {"name":"Purregebyr","priceExcludingVatCurrency":FEE_AMOUNT,"vatType":{"id":ZERO_VAT_ID}}
+  c. The invoice total should equal the fee amount (NO VAT added). If fee is 70 NOK, invoice total must be 70 NOK.
+  Then create order → orderline → invoice as usual.
+
+Step 4: Send the invoice if the task says "send".
+  PUT /invoice/{id}/:send with params={"sendType":"EMAIL"}
+
+Step 5: Register partial payment on the overdue invoice if requested.
+  PUT /invoice/{overdue_id}/:payment with params including the exact payment amount from the task.
+
 REVERSE PAYMENT WORKFLOW (for "reverse" / "revert" / "devuelto" / "tilbakefør" / "stornieren" / "annuler" payment tasks):
 1. Search for the invoice: GET /invoice with params={"invoiceDateFrom":"2000-01-01","invoiceDateTo":"2030-12-31"}
    Note the invoice's "amount" or "amountCurrency" field — this is the TOTAL INCLUDING VAT.
@@ -1119,15 +1148,29 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "  A voucher with only 1 posting is ALWAYS wrong (amounts will be zero)!\n"
                                 "- If any created voucher shows amount=0 or amountCurrency=0, the postings failed!\n"
                             )
+                        elif any(kw in _pl for kw in ["reminder", "purring", "purregebyr", "mahnung", "rappel", "recordatorio", "overdue", "forfalte", "forfalt"]):
+                            _task_checks = (
+                                "TASK TYPE: Reminder / overdue fee.\n"
+                                "Check these SPECIFIC things:\n"
+                                "- Overdue invoice found (amountOutstanding > 0 and past due date)?\n"
+                                "- Reminder fee voucher posted with correct accounts and balanced postings?\n"
+                                "- Reminder fee INVOICE created — fee product must be VAT-EXEMPT (0% VAT)!\n"
+                                "  If fee is 70 NOK, invoice total should be 70 NOK (NOT 87.5).\n"
+                                "  If invoice amount includes 25% VAT on a reminder fee, that is WRONG.\n"
+                                "- Invoice sent if task says 'send'?\n"
+                                "- Partial payment registered on overdue invoice if requested?\n"
+                            )
 
                         verify_prompt = (
                             f"TASK: {prompt}\n\n"
                             f"{_task_checks}\n"
                             f"ACTION LOG (chronological):\n" + "\n".join(action_log[-40:]) + "\n\n"
-                            "You are an accounting verification agent. Check:\n"
+                            "You are an accounting verification agent. Based ONLY on the action log above, check:\n"
                             "1. MATH: All amounts, percentages, VAT calculations correct? "
                             "(e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)\n"
-                            "2. COMPLETENESS: All steps in the task done? (create, invoice, send, pay, etc.) "
+                            "2. COMPLETENESS: Were all steps in the task done? Look at the CALL entries — "
+                            "if the action log shows the step was performed with status=ok, it WAS done. "
+                            "Do NOT say a step is missing if you can see it in the log!\n"
                             "IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!\n"
                             "3. DATA: Names, org numbers, dates match the task?\n"
                             "4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently.\n\n"
