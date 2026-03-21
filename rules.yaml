@@ -1,0 +1,518 @@
+# ─────────────────────────────────────────────────────────────────
+#  VALIDATION RULES — checked BEFORE each API call
+#  If any rule fails, the call is REJECTED and the LLM gets
+#  a clear error message so it can fix and retry.
+#
+#  Rule fields:
+#    id            – unique rule identifier (shown in logs)
+#    description   – human-readable explanation
+#    when          – conditions for this rule to apply:
+#        method        – HTTP method (GET, POST, PUT, DELETE)
+#        path          – exact path match
+#        path_pattern  – regex path match (for dynamic paths)
+#    require_fields    – body fields that MUST exist (dot-notation)
+#    reject_fields     – body fields that must NOT exist
+#    require_params    – query params that MUST exist
+#    field_format      – field → regex the value must match
+#    field_type        – field → expected type (number/string/array/object/boolean)
+#    message           – error message returned to the LLM
+# ─────────────────────────────────────────────────────────────────
+
+rules:
+
+  # ── Travel Expense: Cost ──────────────────────────────────────
+  - id: travel-cost-no-comment
+    description: "Travel expense cost does not accept 'comment' or 'description' fields"
+    when:
+      method: POST
+      path: /travelExpense/cost
+    reject_fields:
+      - comment
+      - description
+    message: >
+      Remove 'comment'/'description' from travel expense cost — these fields
+      do NOT exist on this endpoint and will cause errors.
+
+  - id: travel-cost-required
+    description: "Travel expense cost needs expense ID, category, payment type, and amount"
+    when:
+      method: POST
+      path: /travelExpense/cost
+    require_fields:
+      - travelExpense.id
+      - costCategory.id
+      - paymentType.id
+      - amountCurrencyIncVat
+    message: >
+      POST /travelExpense/cost requires: travelExpense.id, costCategory.id,
+      paymentType.id, and amountCurrencyIncVat.
+
+  # ── Travel Expense: Per Diem ──────────────────────────────────
+  - id: perdiem-required
+    description: "Per diem compensation needs all required fields"
+    when:
+      method: POST
+      path: /travelExpense/perDiemCompensation
+    require_fields:
+      - travelExpense.id
+      - rateCategory.id
+      - location
+      - count
+    message: >
+      POST /travelExpense/perDiemCompensation requires: travelExpense.id,
+      rateCategory.id, location, and count.
+
+  - id: perdiem-count-type
+    description: "Per diem count must be a number"
+    when:
+      method: POST
+      path: /travelExpense/perDiemCompensation
+    field_type:
+      count: number
+    message: >
+      'count' on perDiemCompensation must be a number (e.g. 2), not a string.
+
+  # ── Travel Expense: Main ──────────────────────────────────────
+  - id: travel-expense-required
+    description: "Travel expense needs employee ID"
+    when:
+      method: POST
+      path: /travelExpense
+    require_fields:
+      - employee.id
+    message: >
+      POST /travelExpense requires employee.id.
+
+  # ── Employee ──────────────────────────────────────────────────
+  - id: employee-post-required
+    description: "POST /employee needs firstName and lastName"
+    when:
+      method: POST
+      path: /employee
+    require_fields:
+      - firstName
+      - lastName
+    message: >
+      POST /employee requires 'firstName' and 'lastName' in the body.
+
+  - id: employee-put-no-email
+    description: "PUT /employee must NOT include email (immutable)"
+    when:
+      method: PUT
+      path_pattern: "^/employee/\\d+$"
+    reject_fields:
+      - email
+    message: >
+      Do NOT include 'email' in PUT /employee — email is immutable and
+      will cause a 422 error. Remove it from the body.
+
+  # ── Customer ──────────────────────────────────────────────────
+  - id: customer-required
+    description: "POST /customer needs a name"
+    when:
+      method: POST
+      path: /customer
+    require_fields:
+      - name
+    message: >
+      POST /customer requires 'name' in the body.
+
+  # ── Supplier ──────────────────────────────────────────────────
+  - id: supplier-required
+    description: "POST /supplier needs a name"
+    when:
+      method: POST
+      path: /supplier
+    require_fields:
+      - name
+    message: >
+      POST /supplier requires 'name' in the body.
+
+  # ── Order ─────────────────────────────────────────────────────
+  - id: order-required
+    description: "POST /order needs customer ID"
+    when:
+      method: POST
+      path: /order
+    require_fields:
+      - customer.id
+    message: >
+      POST /order requires customer.id.
+
+  - id: orderline-required
+    description: "POST /order/orderline needs order and product IDs"
+    when:
+      method: POST
+      path: /order/orderline
+    require_fields:
+      - order.id
+      - product.id
+    message: >
+      POST /order/orderline requires order.id and product.id.
+
+  # ── Invoice ───────────────────────────────────────────────────
+  - id: invoice-required
+    description: "POST /invoice needs orders array"
+    when:
+      method: POST
+      path: /invoice
+    require_fields:
+      - orders
+    message: >
+      POST /invoice requires 'orders' array (e.g. [{"id": ORDER_ID}]).
+
+  - id: invoice-orders-type
+    description: "Invoice orders must be an array"
+    when:
+      method: POST
+      path: /invoice
+    field_type:
+      orders: array
+    message: >
+      'orders' on POST /invoice must be an array, e.g. [{"id": ORDER_ID}].
+
+  # ── Invoice Actions (send/payment/creditNote) ─────────────────
+  - id: invoice-send-params
+    description: "Invoice send requires sendType param"
+    when:
+      method: PUT
+      path_pattern: "^/invoice/\\d+/:send$"
+    require_params:
+      - sendType
+    message: >
+      PUT /invoice/{id}/:send requires param sendType=EMAIL. Use 'params'
+      field, NOT 'body'.
+
+  - id: invoice-payment-params
+    description: "Invoice payment requires all payment params"
+    when:
+      method: PUT
+      path_pattern: "^/invoice/\\d+/:payment$"
+    require_params:
+      - paymentDate
+      - paymentTypeId
+      - paidAmount
+    message: >
+      PUT /invoice/{id}/:payment requires params: paymentDate, paymentTypeId,
+      paidAmount. Use 'params' field, NOT 'body'.
+
+  # ── Project ───────────────────────────────────────────────────
+  - id: project-required
+    description: "POST /project needs name, number, projectManager, startDate"
+    when:
+      method: POST
+      path: /project
+    require_fields:
+      - name
+      - number
+      - projectManager.id
+      - startDate
+    message: >
+      POST /project requires: name, number (string like "PRJ-1234"),
+      projectManager.id, and startDate.
+
+  - id: project-no-fixedPrice-camelCase
+    description: "Fixed price field must be lowercase 'fixedprice', not 'fixedPrice'"
+    when:
+      method: POST
+      path: /project
+    reject_fields:
+      - fixedPrice
+    message: >
+      Wrong field name! Use 'fixedprice' (all lowercase), NOT 'fixedPrice'
+      (camelCase). The API will return 422 "field doesn't exist" otherwise.
+
+  - id: project-put-no-fixedPrice
+    description: "Fixed price field must be lowercase on PUT too"
+    when:
+      method: PUT
+      path_pattern: "^/project/\\d+$"
+    reject_fields:
+      - fixedPrice
+    message: >
+      Wrong field name! Use 'fixedprice' (all lowercase), NOT 'fixedPrice'.
+
+  # ── Salary ────────────────────────────────────────────────────
+  - id: salary-required
+    description: "POST /salary/transaction needs year, month, payslips"
+    when:
+      method: POST
+      path: /salary/transaction
+    require_fields:
+      - year
+      - month
+      - payslips
+    message: >
+      POST /salary/transaction requires: year, month, and payslips array.
+
+  - id: salary-payslips-type
+    description: "Salary payslips must be an array"
+    when:
+      method: POST
+      path: /salary/transaction
+    field_type:
+      payslips: array
+    message: >
+      'payslips' must be an array of payslip objects with employee and
+      specifications.
+
+  # ── Supplier Invoice ──────────────────────────────────────────
+  - id: supplier-invoice-required
+    description: "POST /supplierInvoice needs supplier and voucher"
+    when:
+      method: POST
+      path: /supplierInvoice
+    require_fields:
+      - supplier.id
+      - voucher
+    message: >
+      POST /supplierInvoice requires supplier.id and voucher with postings.
+
+  # ── Date Format ───────────────────────────────────────────────
+  - id: date-format-invoiceDate
+    description: "invoiceDate must be YYYY-MM-DD"
+    when:
+      method: POST
+      path_pattern: "^/invoice$"
+    field_format:
+      invoiceDate: "^\\d{4}-\\d{2}-\\d{2}$"
+    message: >
+      invoiceDate must be in YYYY-MM-DD format (e.g. 2026-03-21).
+
+  - id: date-format-startDate
+    description: "startDate must be YYYY-MM-DD"
+    when:
+      method: POST
+      path: /project
+    field_format:
+      startDate: "^\\d{4}-\\d{2}-\\d{2}$"
+    message: >
+      startDate must be in YYYY-MM-DD format (e.g. 2026-03-21).
+
+  # ── Delivery Address ──────────────────────────────────────────
+  - id: delivery-address-no-customer
+    description: "POST /deliveryAddress does NOT accept 'customer' field"
+    when:
+      method: POST
+      path: /deliveryAddress
+    reject_fields:
+      - customer
+    message: >
+      POST /deliveryAddress does NOT have a 'customer' field. The field
+      doesn't exist on this endpoint. Use 'employee' or 'name' field instead.
+
+  - id: delivery-address-country-type
+    description: "Country on deliveryAddress must not be a plain string"
+    when:
+      method: POST
+      path: /deliveryAddress
+    field_type:
+      country: object
+    message: >
+      'country' on deliveryAddress must be an object like {"id": COUNTRY_ID},
+      not a string like "NO" or "Norway". Look up country IDs first.
+
+  # ── Employee Employment ───────────────────────────────────────
+  - id: employment-no-department
+    description: "POST /employee/employment does NOT accept 'department' field"
+    when:
+      method: POST
+      path: /employee/employment
+    reject_fields:
+      - department
+    message: >
+      POST /employee/employment does NOT accept 'department'. Remove it —
+      the field doesn't exist on this endpoint and will cause a 422 error.
+
+  - id: employment-required
+    description: "POST /employee/employment needs employee ID and startDate"
+    when:
+      method: POST
+      path: /employee/employment
+    require_fields:
+      - employee.id
+      - startDate
+    message: >
+      POST /employee/employment requires employee.id and startDate.
+
+  # ── GET /invoice requires date range params ───────────────────
+  - id: invoice-get-date-params
+    description: "GET /invoice requires invoiceDateFrom and invoiceDateTo"
+    when:
+      method: GET
+      path: /invoice
+    require_params:
+      - invoiceDateFrom
+      - invoiceDateTo
+    message: >
+      GET /invoice requires params invoiceDateFrom and invoiceDateTo.
+      Use wide range like invoiceDateFrom=2000-01-01&invoiceDateTo=2030-12-31.
+
+  # ── Credit Note requires date param ───────────────────────────
+  - id: creditnote-date-param
+    description: "createCreditNote requires date param"
+    when:
+      method: PUT
+      path_pattern: "^/invoice/\\d+/:createCreditNote$"
+    require_params:
+      - date
+    message: >
+      PUT /invoice/{id}/:createCreditNote requires param 'date' (YYYY-MM-DD).
+      Use 'params' field, NOT 'body'.
+
+  # ── Action endpoints must use params, not body ────────────────
+  - id: action-endpoint-no-body-send
+    description: "Invoice send action must use params, not body"
+    when:
+      method: PUT
+      path_pattern: "^/invoice/\\d+/:send$"
+    reject_fields:
+      - sendType
+    message: >
+      PUT /invoice/{id}/:send — sendType goes in 'params', not in 'body'.
+      Use params={"sendType":"EMAIL"}.
+
+  - id: action-endpoint-no-body-payment
+    description: "Invoice payment action must use params, not body"
+    when:
+      method: PUT
+      path_pattern: "^/invoice/\\d+/:payment$"
+    reject_fields:
+      - paymentDate
+      - paymentTypeId
+      - paidAmount
+    message: >
+      PUT /invoice/{id}/:payment — payment fields go in 'params', not 'body'.
+      Use params={"paymentDate":"...","paymentTypeId":X,"paidAmount":Y}.
+
+  - id: action-endpoint-no-body-creditnote
+    description: "Credit note action must use params, not body"
+    when:
+      method: PUT
+      path_pattern: "^/invoice/\\d+/:createCreditNote$"
+    reject_fields:
+      - date
+    message: >
+      PUT /invoice/{id}/:createCreditNote — date goes in 'params', not 'body'.
+      Use params={"date":"YYYY-MM-DD"}.
+
+  # ── Ledger Voucher ────────────────────────────────────────────
+  - id: voucher-required
+    description: "POST /ledger/voucher needs date and postings in body"
+    when:
+      method: POST
+      path: /ledger/voucher
+    require_fields:
+      - date
+      - postings
+    message: >
+      POST /ledger/voucher requires 'date' and 'postings' array in the body
+      (NOT in params). Use body={"date":"YYYY-MM-DD","description":"...","postings":[...]}.
+
+  - id: voucher-postings-type
+    description: "Voucher postings must be an array"
+    when:
+      method: POST
+      path: /ledger/voucher
+    field_type:
+      postings: array
+    message: >
+      'postings' on POST /ledger/voucher must be an array of posting objects.
+
+  # ── Project number must be string ─────────────────────────────
+  - id: project-number-type
+    description: "Project number must be a string"
+    when:
+      method: POST
+      path: /project
+    field_type:
+      number: string
+    message: >
+      Project 'number' must be a string (e.g. "PRJ-1234"), not a number.
+      The API requires this field to be a string type.
+
+  # ── Supplier Invoice ──────────────────────────────────────────
+  - id: supplier-invoice-voucher-type
+    description: "Supplier invoice voucher must be an object"
+    when:
+      method: POST
+      path: /supplierInvoice
+    field_type:
+      voucher: object
+    message: >
+      'voucher' on POST /supplierInvoice must be an object with date,
+      description, and postings array.
+
+  - id: supplier-invoice-number
+    description: "Supplier invoice needs invoiceNumber"
+    when:
+      method: POST
+      path: /supplierInvoice
+    require_fields:
+      - invoiceNumber
+      - invoiceDate
+      - supplier.id
+      - voucher
+    message: >
+      POST /supplierInvoice requires: invoiceNumber, invoiceDate, supplier.id,
+      and voucher (with postings).
+
+  # ── Contact Person ────────────────────────────────────────────
+  - id: contact-required
+    description: "POST /contact needs customer reference"
+    when:
+      method: POST
+      path: /contact
+    require_fields:
+      - customer.id
+    message: >
+      POST /contact requires customer.id to link the contact to a customer.
+
+  # ── Timesheet Entry ───────────────────────────────────────────
+  - id: timesheet-required
+    description: "POST /timesheet/entry needs all required fields"
+    when:
+      method: POST
+      path: /timesheet/entry
+    require_fields:
+      - employee.id
+      - project.id
+      - activity.id
+      - date
+      - hours
+    message: >
+      POST /timesheet/entry requires: employee.id, project.id, activity.id,
+      date, and hours.
+
+  # ── Product ───────────────────────────────────────────────────
+  - id: product-required
+    description: "POST /product needs a name"
+    when:
+      method: POST
+      path: /product
+    require_fields:
+      - name
+    message: >
+      POST /product requires 'name' in the body.
+
+  # ── Department ────────────────────────────────────────────────
+  - id: department-required
+    description: "POST /department needs name and departmentNumber"
+    when:
+      method: POST
+      path: /department
+    require_fields:
+      - name
+      - departmentNumber
+    message: >
+      POST /department requires 'name' and 'departmentNumber' (string).
+
+  - id: department-number-type
+    description: "departmentNumber must be a string"
+    when:
+      method: POST
+      path: /department
+    field_type:
+      departmentNumber: string
+    message: >
+      'departmentNumber' on POST /department must be a string, not a number.

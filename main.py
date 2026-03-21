@@ -1,11 +1,13 @@
 import base64
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 
 import requests
 import urllib3
+import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -16,6 +18,111 @@ load_dotenv()
 
 app = FastAPI()
 client = OpenAI()
+
+# ── Validation Rules Engine ─────────────────────────────────────
+_RULES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules.yaml")
+
+def _load_rules():
+    """Load validation rules from rules.yaml (cached after first load)."""
+    if not os.path.exists(_RULES_PATH):
+        return []
+    with open(_RULES_PATH, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return data.get("rules", []) if data else []
+
+_CACHED_RULES = None
+
+def get_rules():
+    global _CACHED_RULES
+    if _CACHED_RULES is None:
+        _CACHED_RULES = _load_rules()
+    return _CACHED_RULES
+
+def _field_exists(obj, dot_path):
+    """Check if a nested field exists using dot notation (e.g. 'travelExpense.id')."""
+    parts = dot_path.split(".")
+    cur = obj
+    for p in parts:
+        if isinstance(cur, dict) and p in cur:
+            cur = cur[p]
+        else:
+            return False
+    return True
+
+def _get_field(obj, dot_path):
+    """Get a nested field value using dot notation. Returns None if missing."""
+    parts = dot_path.split(".")
+    cur = obj
+    for p in parts:
+        if isinstance(cur, dict) and p in cur:
+            cur = cur[p]
+        else:
+            return None
+    return cur
+
+def validate_tool_call(method, path, body=None, params=None):
+    """Check a tool call against all applicable rules.
+    Returns a list of violation strings (empty = all OK)."""
+    rules = get_rules()
+    body = body or {}
+    params = params or {}
+    violations = []
+    clean_path = path.rstrip("/")
+
+    for rule in rules:
+        w = rule.get("when", {})
+        # Method match
+        if w.get("method") and w["method"].upper() != method.upper():
+            continue
+        # Path match (exact or regex)
+        rule_path = w.get("path")
+        rule_pat = w.get("path_pattern")
+        if rule_path and clean_path != rule_path.rstrip("/"):
+            continue
+        if rule_pat and not re.match(rule_pat, clean_path):
+            continue
+        if not rule_path and not rule_pat:
+            continue
+
+        rid = rule.get("id", "?")
+        msg = rule.get("message", "Validation failed").strip()
+
+        # Required body fields
+        for f in rule.get("require_fields", []):
+            if not _field_exists(body, f):
+                violations.append(f"[{rid}] {msg} (missing: {f})")
+                break
+
+        # Rejected body fields
+        for f in rule.get("reject_fields", []):
+            if _field_exists(body, f):
+                violations.append(f"[{rid}] {msg} (forbidden field: {f})")
+                break
+
+        # Required params
+        for f in rule.get("require_params", []):
+            if f not in params:
+                violations.append(f"[{rid}] {msg} (missing param: {f})")
+                break
+
+        # Field format (regex)
+        for f, pattern in rule.get("field_format", {}).items():
+            val = _get_field(body, f) or params.get(f)
+            if val is not None and not re.match(pattern, str(val)):
+                violations.append(f"[{rid}] {msg} ({f}='{val}')")
+
+        # Field type
+        type_map = {"number": (int, float), "string": str, "array": list, "object": dict, "boolean": bool}
+        for f, expected in rule.get("field_type", {}).items():
+            val = _get_field(body, f)
+            if val is not None:
+                py_type = type_map.get(expected)
+                if py_type and not isinstance(val, py_type):
+                    violations.append(f"[{rid}] {msg} ({f} is {type(val).__name__}, expected {expected})")
+
+    return violations
+
+# ── End Validation Rules Engine ─────────────────────────────────
 
 SYSTEM_PROMPT_TEMPLATE = """\
 IMPORTANT — TODAY'S DATE IS {today}. Use {today} for all dates (invoiceDate, orderDate, deliveryDate, startDate, paymentDate, credit note date). NEVER use 2023 or 2024 or 2025 dates.
@@ -730,8 +837,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     # Pre-check: set bank account for invoice-related tasks (also credit note and payment tasks need invoices)
     prompt_lower = prompt.lower()
     # Strip email addresses before keyword check to avoid false positives (e.g. "faktura@company.no")
-    import re as _re
-    prompt_for_kw = _re.sub(r'\S+@\S+', '', prompt_lower)
+    prompt_for_kw = re.sub(r'\S+@\S+', '', prompt_lower)
     invoice_keywords = ["faktura", "invoice", "rechnung", "factura", "facture", "fatura",
                         "credit", "kredit", "gutschrift", "nota de crédito",
                         "payment", "betaling", "zahlung", "pago", "pagamento", "paiement",
@@ -959,6 +1065,29 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 print(f"    │  [fix] perDiem rateCategory {old_id} → {best_cat['id']} ({best_cat['name']})", flush=True)
                         except Exception as e:
                             print(f"    │  [fix] perDiem auto-fix failed: {e}", flush=True)
+
+                # ── Validation rules check (after auto-fixes, before API call) ──
+                violations = validate_tool_call(
+                    args["method"], args["path"],
+                    body=req_body, params=args.get("params"),
+                )
+                if violations:
+                    v_text = "\n".join(violations)
+                    print(f"    │  [reject] {len(violations)} rule violation(s):", flush=True)
+                    for v in violations:
+                        print(f"    │    • {v}", flush=True)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps({
+                            "error": f"VALIDATION REJECTED — fix these issues and retry:\n{v_text}",
+                            "_status_code": 400,
+                            "_validation_rules": violations,
+                        }),
+                    })
+                    diag["errors"].append(f"RULE_VIOLATION: {args['method']} {args['path']}")
+                    continue
+
                 result = call_tripletex(
                     base_url, auth,
                     method=args["method"],
