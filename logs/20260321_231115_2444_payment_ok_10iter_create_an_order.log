@@ -1,0 +1,202 @@
+
+======================================================================
+  NEW TASK RECEIVED
+  Version: unknown
+======================================================================
+  Prompt: Create an order for the customer Northwave Ltd (org no. 997677889) with the products Cloud Storage (4257) at 27150 NOK and System Development (7968) at 10100 NOK. Convert the order to an invoice and register full payment.
+  Files:  0
+  URL:    https://tx-proxy-jwanbnu3pq-lz.a.run.app/v2
+──────────────────────────────────────────────────────────────────────
+  [pre] Invoice/credit/payment task detected — ensuring bank account...
+    ┌─ API GET /invoice/settings
+  [gcs] Upload failed: 403 POST https://storage.googleapis.com/upload/storage/v1/b/tripletex-agent-logs/o?uploadType=multipart: {
+  "error": {
+    "code": 403,
+    "message": "52373769937-compute@developer.gserviceaccount.com does not have storage.objects.create access to the Google Cloud Storage object. Permission 'storage.objects.create' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "52373769937-compute@developer.gserviceaccount.com does not have storage.objects.create access to the Google Cloud Storage object. Permission 'storage.objects.create' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+: ('Request failed with status code', 403, 'Expected one of', <HTTPStatus.OK: 200>)
+    └─ 200 OK (0.3s) id=969949
+  [bank] already ready
+  [pre] Bank account setup: OK
+
+──────────────────────────────────────────────────
+  ITERATION 1/25
+──────────────────────────────────────────────────
+  Tokens: prompt=16572 completion=21 total_session=16593
+  Messages: 3 (62,266 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/customer"})
+    ┌─ API GET /customer
+    └─ 200 OK (0.2s) [1 items]
+    │  response: {"fullResultSize": 1, "from": 0, "count": 1, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 108454041, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108454041", "name": "Northwave Ltd", "organizationNumber": "997677889", "globalLocationNumber": 0, "supplierNumber": 0, "customerNumber": 10001, "isSupplier": false, "isCustomer": true, "isInactive": false, "accountManager": null, "department": null, "email": "", "invoiceEmail": "", "overdueNoticeEmail": "", "phoneNumber": "", "phoneNumberMobile": "", "description": "", "language": "NO", "displayName": "Northwave Ltd (10001)", "isPrivateIndividual": false, "singleCustomerInvoice": false, "invoiceSendMethod": "EMAIL", "emailAttachmentType": "ATTACHMENT", "postalAddress": {"id": 405755469, "url": "kkpqfuj-amager.tripletex.dev/v2/address/405755469"}, "physicalAddress": {"id": 405755468, "url": "kkpqfuj-amager.tripletex.dev/v2/address/405755468"}, "deliveryAddress": null, "category1": null, "category2": null, "category3": null, "invoicesDueIn": 14, "invoicesDueInType": "DAYS", "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "bankAccountPresentation": [], "ledgerAccount": {"id": 477171535, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/account/477171535"}, "isFactoring": false, "invoiceSendSMSNotification": false, "invoiceSMSNotificationNumber": "", "isAutomaticSoftReminderEnabled": false, "isAutomaticReminderEnabled": false, "isAutomaticNoticeOfDebtCollectionEna…
+  Iteration 1 took 0.9s
+
+──────────────────────────────────────────────────
+  ITERATION 2/25
+──────────────────────────────────────────────────
+  Tokens: prompt=17076 completion=21 total_session=33690
+  Messages: 5 (63,823 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/product"})
+    ┌─ API GET /product
+    └─ 200 OK (0.3s) [2 items]
+    │  response: {"fullResultSize": 2, "from": 0, "count": 2, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 84424181, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84424181", "name": "Cloud Storage", "number": "4257", "displayNumber": "4257", "description": "", "orderLineDescription": "", "costExcludingVatCurrency": 0, "costPrice": 0, "priceExcludingVatCurrency": 27150.0, "priceIncludingVatCurrency": 33937.5, "isInactive": false, "productUnit": null, "incomingStock": 0, "outgoingStock": 0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "department": null, "account": null, "supplier": null, "resaleProduct": null, "isDeletable": false, "hasSupplierProductConnected": false, "image": null, "displayName": "4257 Cloud Storage", "mainSupplierProduct": null, "isRoundPriceIncVat": false, "priceInTargetCurrency": 0, "purchasePriceCurrency": 0}, {"id": 84424182, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84424182", "name": "System Development", "number": "7968", "displayNumber": "7968", "description": "", "orderLineDescription": "", "costExcludingVatCurrency": 0, "costPrice": 0, "priceExcludingVatCurrency": 10100.0, "priceIncludingVatCurrency": 12625.0, "isInactive": false, "productUnit": null, "incomingStock": 0, "outgoingStock": 0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "currency": {"id": …
+  Iteration 2 took 0.9s
+
+──────────────────────────────────────────────────
+  ITERATION 3/25
+──────────────────────────────────────────────────
+  [github] Log pushed: 20260321_231100_9464_supplier_invoice_ok_7iter_wir_haben_die.log (attempt 1)
+  Tokens: prompt=17720 completion=21 total_session=51431
+  Messages: 7 (65,690 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order"})
+    │  [fix] blocked POST without body: /order
+  Iteration 3 took 0.9s
+
+──────────────────────────────────────────────────
+  ITERATION 4/25
+──────────────────────────────────────────────────
+  Tokens: prompt=17807 completion=51 total_session=69289
+  Messages: 9 (65,894 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order","body":{"customer":{"id":108454041},"orderDate":"2026-03-21","deliveryDate":"2026-03-21"}})
+    ┌─ API POST /order
+    │  body:   {"customer": {"id": 108454041}, "orderDate": "2026-03-21", "deliveryDate": "2026-03-21"}
+    └─ 201 OK (0.4s) id=402045084
+    │  response: {"value": {"id": 402045084, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402045084", "customer": {"id": 108454041, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108454041"}, "contact": null, "attn": null, "displayName": "1 Ordre", "receiverEmail": "", "overdueNoticeEmail": "", "number": "1", "reference": "", "department": null, "orderDate": "2026-03-21", "project": null, "invoiceComment": "", "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "invoicesDueIn": 14, "invoicesDueInType": "DAYS", "isShowOpenPostsOnInvoices": false, "isClosed": false, "deliveryDate": "2026-03-21", "deliveryAddress": null, "deliveryComment": "", "isPrioritizeAmountsIncludingVat": false, "orderLineSorting": "PRODUCT", "orderGroups": [], "orderLines": [], "isSubscription": false, "subscriptionDuration": 0, "subscriptionDurationType": "MONTHS", "subscriptionPeriodsOnInvoice": 0, "subscriptionPeriodsOnInvoiceType": "MONTHS", "subscriptionInvoicingTimeInAdvanceOrArrears": "ADVANCE", "subscriptionInvoicingTime": 0, "subscriptionInvoicingTimeType": "MONTHS", "isSubscriptionAutoInvoicing": false, "preliminaryInvoice": {"id": 2147649804, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147649804"}, "attachment": [], "sendMethodDescription": "Faktura må sendes manuelt.", "invoiceOnAccountVatHigh": false, "totalInvoicedOnAccountAmountAbsoluteCurrency": 0.0, "invoiceSendSMSNotification": false, "invoiceSMSNotificationNumber": "", "markUpOrderLines": 0, "discountPercent…
+  Iteration 4 took 1.7s
+
+──────────────────────────────────────────────────
+  ITERATION 5/25
+──────────────────────────────────────────────────
+  Tokens: prompt=18362 completion=45 total_session=87696
+  Messages: 11 (67,527 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402045084},"product":{"id":84424181},"count":1}})
+    ┌─ API POST /order/orderline
+    │  body:   {"order": {"id": 402045084}, "product": {"id": 84424181}, "count": 1}
+    └─ 201 OK (0.4s) id=1607582213
+    │  response: {"value": {"id": 1607582213, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607582213", "product": {"id": 84424181, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84424181"}, "inventory": null, "description": "", "displayName": "4257 Cloud Storage", "count": 1.0, "unitCostCurrency": 0.0, "unitPriceExcludingVatCurrency": 27150.0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "markup": 0.0, "discount": 0.0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "amountExcludingVatCurrency": 27150.0, "amountIncludingVatCurrency": 33937.5, "vendor": null, "order": {"id": 402045084, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402045084"}, "unitPriceIncludingVatCurrency": 33937.5, "isSubscription": false, "subscriptionPeriodStart": null, "subscriptionPeriodEnd": null, "orderGroup": null, "sortIndex": 0, "isPicked": false, "pickedDate": null, "orderedQuantity": 0, "isCharged": false}}
+  Iteration 5 took 1.8s
+
+──────────────────────────────────────────────────
+  ITERATION 6/25
+──────────────────────────────────────────────────
+  Tokens: prompt=18759 completion=45 total_session=106500
+  Messages: 13 (68,500 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402045084},"product":{"id":84424182},"count":1}})
+    ┌─ API POST /order/orderline
+    │  body:   {"order": {"id": 402045084}, "product": {"id": 84424182}, "count": 1}
+    └─ 201 OK (0.4s) id=1607582218
+    │  response: {"value": {"id": 1607582218, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607582218", "product": {"id": 84424182, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84424182"}, "inventory": null, "description": "", "displayName": "7968 System Development", "count": 1.0, "unitCostCurrency": 0.0, "unitPriceExcludingVatCurrency": 10100.0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "markup": 0.0, "discount": 0.0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "amountExcludingVatCurrency": 10100.0, "amountIncludingVatCurrency": 12625.0, "vendor": null, "order": {"id": 402045084, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402045084"}, "unitPriceIncludingVatCurrency": 12625.0, "isSubscription": false, "subscriptionPeriodStart": null, "subscriptionPeriodEnd": null, "orderGroup": null, "sortIndex": 0, "isPicked": false, "pickedDate": null, "orderedQuantity": 0, "isCharged": false}}
+  Iteration 6 took 1.8s
+
+──────────────────────────────────────────────────
+  ITERATION 7/25
+──────────────────────────────────────────────────
+  Tokens: prompt=19156 completion=54 total_session=125710
+  Messages: 15 (69,478 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/invoice","body":{"invoiceDate":"2026-03-21","invoiceDueDate":"2026-04-04","orders":[{"id":402045084}]}})
+    ┌─ API POST /invoice
+    │  body:   {"invoiceDate": "2026-03-21", "invoiceDueDate": "2026-04-04", "orders": [{"id": 402045084}]}
+    └─ 201 OK (0.5s) id=2147649808
+    │  response: {"value": {"id": 2147649808, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147649808", "invoiceNumber": 1, "invoiceDate": "2026-03-21", "customer": {"id": 108454041, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108454041"}, "creditedInvoice": 0, "isCredited": false, "invoiceDueDate": "2026-04-04", "kid": "", "invoiceComment": "", "comment": "", "orders": [{"id": 402045084, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402045084"}], "orderLines": [{"id": 1607582213, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607582213"}, {"id": 1607582218, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607582218"}], "travelReports": [], "projectInvoiceDetails": [{"id": 1965801291, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/details/1965801291"}], "voucher": {"id": 609206265, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609206265"}, "deliveryDate": "2026-03-21", "amount": 46562.5, "amountCurrency": 46562.5, "amountExcludingVat": 37250.0, "amountExcludingVatCurrency": 37250.0, "amountRoundoff": 0, "amountRoundoffCurrency": 0, "amountOutstanding": 46562.5, "amountCurrencyOutstanding": 46562.5, "amountOutstandingTotal": 46562.5, "amountCurrencyOutstandingTotal": 46562.5, "sumRemits": 0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "isCreditNote": false, "isCharged": true, "isApproved": false, "postings": [{"id": 3845951112, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3845951112"}], "reminders": [],…
+  Iteration 7 took 1.8s
+
+──────────────────────────────────────────────────
+  ITERATION 8/25
+──────────────────────────────────────────────────
+  Tokens: prompt=19791 completion=23 total_session=145524
+  Messages: 17 (71,083 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/invoice/paymentType"})
+    ┌─ API GET /invoice/paymentType
+    └─ 200 OK (0.3s) [2 items]
+    │  response: {"fullResultSize": 2, "from": 0, "count": 2, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 37720269, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/paymentType/37720269", "description": "Kontant", "displayName": "Kontant", "debitAccount": {"id": 477171588, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/account/477171588"}, "creditAccount": null, "vatType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}, "sequence": 1, "customer": null, "supplier": null, "currencyId": 1, "currencyCode": "NOK"}, {"id": 37720270, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/paymentType/37720270", "description": "Betalt til bank", "displayName": "Betalt til bank", "debitAccount": {"id": 477171591, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/account/477171591"}, "creditAccount": null, "vatType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}, "sequence": 2, "customer": null, "supplier": null, "currencyId": 1, "currencyCode": "NOK"}]}
+  Iteration 8 took 1.6s
+
+──────────────────────────────────────────────────
+  ITERATION 9/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20191 completion=65 total_session=165780
+  Messages: 19 (72,116 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"PUT","path":"/invoice/2147649808/:payment","params":{"paymentDate":"2026-03-21","paymentTypeId":37720270,"paidAmount":46562.5,"paidAmountCurrency":46562.5}})
+    ┌─ API PUT /invoice/2147649808/:payment
+    │  params: {"paymentDate": "2026-03-21", "paymentTypeId": 37720270, "paidAmount": 46562.5, "paidAmountCurrency": 46562.5}
+    └─ 200 OK (0.5s) id=2147649808
+    │  response: {"value": {"id": 2147649808, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147649808", "invoiceNumber": 1, "invoiceDate": "2026-03-21", "customer": {"id": 108454041, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108454041"}, "creditedInvoice": 0, "isCredited": false, "invoiceDueDate": "2026-04-04", "kid": "", "invoiceComment": "", "comment": "", "orders": [{"id": 402045084, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402045084"}], "orderLines": [{"id": 1607582213, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607582213"}, {"id": 1607582218, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607582218"}], "travelReports": [], "projectInvoiceDetails": [{"id": 1965801291, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/details/1965801291"}], "voucher": {"id": 609206265, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609206265"}, "deliveryDate": "2026-03-21", "amount": 46562.5, "amountCurrency": 46562.5, "amountExcludingVat": 37250.0, "amountExcludingVatCurrency": 37250.0, "amountRoundoff": 0.0, "amountRoundoffCurrency": 0.0, "amountOutstanding": 0.0, "amountCurrencyOutstanding": 0.0, "amountOutstandingTotal": 0.0, "amountCurrencyOutstandingTotal": 0.0, "sumRemits": 0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "isCreditNote": false, "isCharged": true, "isApproved": false, "postings": [{"id": 3845951112, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3845951112"}, {"id": 3845951188, "url": "kk…
+  Iteration 9 took 1.6s
+
+──────────────────────────────────────────────────
+  ITERATION 10/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20872 completion=9 total_session=186661
+  Messages: 21 (73,797 chars)
+  Tool calls (1):
+    [1] done()
+
+  ⏳ Verifying task completion (276s remaining)...
+  📋 Verification prompt (3874 chars):
+    │ TASK: Create an order for the customer Northwave Ltd (org no. 997677889) with the products Cloud Storage (4257) at 27150 NOK and System Development (7968) at 10100 NOK. Convert the order to an invoice and register full payment.
+    │ 
+    │ 
+    │ ACTION LOG (chronological):
+    │ CALL: tripletex_api({"method":"GET","path":"/customer"})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"GET","path":"/product"})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"POST","path":"/order"})
+    │ status=400
+    │ CALL: tripletex_api({"method":"POST","path":"/order","body":{"customer":{"id":108454041},"orderDate":"2026-03-21","deliveryDate":"2026-03-21"}})
+    │ status=ok id=402045084
+    │ CALL: tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402045084},"product":{"id":84424181},"count":1}})
+    │ status=ok id=1607582213 count=1.0
+    │ CALL: tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402045084},"product":{"id":84424182},"count":1}})
+    │ status=ok id=1607582218 count=1.0
+    │ CALL: tripletex_api({"method":"POST","path":"/invoice","body":{"invoiceDate":"2026-03-21","invoiceDueDate":"2026-04-04","orders":[{"id":402045084}]}})
+    │ status=ok id=2147649808 amount=46562.5 amountCurrency=46562.5 invoiceNumber=1
+    │ CALL: tripletex_api({"method":"GET","path":"/invoice/paymentType"})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"PUT","path":"/invoice/2147649808/:payment","params":{"paymentDate":"2026-03-21","paymentTypeId":37720270,"paidAmount":46562.5,"paidAmountCurrency":46562.5}})
+    │ status=ok id=2147649808 amount=46562.5 amountCurrency=46562.5 invoiceNumber=1
+    │ CALL: done({})
+    │ 
+    │ You are an accounting verification agent. Based ONLY on the action log above, check:
+    │ 1. MATH: All amounts, percentages, VAT calculations correct? (e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)
+    │ 2. COMPLETENESS: Were all steps in the task done? Look at the CALL entries — if the action log shows the step was performed with status=ok, it WAS done. Do NOT say a step is missing if you can see it in the log!
+    │ IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!
+    │ 3. DATA: Names, org numbers, dates match the task?
+    │ 4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently. EXCEPTION: Supplier invoice (supplierInvoice) responses normally show amount=0 — this is OK.
+    │ 5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.
+    │ 6. PAYMENT AMOUNTS: Invoice payments and reversals use the FULL amount INCLUDING VAT, not excl. VAT. If the task says 'X NOK excl. VAT', the correct payment/reversal amount is X × 1.25 (Norwegian 25% VAT). Do NOT flag a mismatch between excl. VAT amounts in the task and incl. VAT payment amounts.
+    │ 7. VAT BREAKDOWN: If the total invoice amount matches the expected sum, do NOT fail on 'VAT breakdown not reflected' or similar vague VAT concerns. Only fail if a specific line item has the WRONG VAT rate applied.
+    │ 
+    │ CRITICAL: Be CONSERVATIVE. When in doubt, say PASS.
+    │ Only say FAIL for CLEAR, OBJECTIVE, SPECIFIC errors (wrong math, completely missing step, wrong name).
+    │ Do NOT say FAIL for: vague concerns, 'might be wrong', uncertain issues, minor stylistic differences, or steps you cannot confirm from the log (absence of evidence is NOT evidence of absence).
+    │ A false FAIL causes MORE damage than a missed error. When uncertain, ALWAYS say PASS.
+    │ If the action log shows all main steps completed with status=ok, say PASS.
+    │ 
+    │ Reply ONLY with either:
+    │ - 'PASS' if everything looks correct or you are unsure
+    │ - 'FAIL: <specific issue>' ONLY if there is an obvious, objective error
+  🔍 Verification (1034 tokens): PASS
+
+  ✓ DONE — 10 iterations, 186661 tokens, 14.0s
+
+======================================================================
+  TASK COMPLETE — total 14.4s
+======================================================================
+
