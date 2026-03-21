@@ -714,8 +714,58 @@ CUSTOMER WORKFLOW:
   If the customer already exists and you need to add an address: PUT /customer/{id} with the address fields.
 - "Kunde" (German/Norwegian) = "client" (French) = "cliente" (Spanish/Portuguese) = customer
 
-DEPARTMENT WORKFLOW:
-- POST /department with name, departmentNumber (string)
+DEPARTMENT WORKFLOW (for "department"/"avdeling"/"Abteilung"/"département"/"departamento" tasks):
+The task asks you to create one or more departments.
+
+Step 1: For EACH department requested, POST /department with:
+  {"name": "DEPARTMENT_NAME", "departmentNumber": "NUMBER_STRING"}
+  - departmentNumber MUST be a string (e.g. "1", "2", "3" or "100", "200", "300").
+  - If the task gives specific numbers, use those. Otherwise use sequential "1", "2", "3".
+  - If the task gives codes/abbreviations, include them.
+
+Step 2: Repeat for each department. If the task says "create 3 departments", create all 3.
+
+Step 3: Call done().
+
+MULTI-VAT INVOICE WORKFLOW (for invoices with products at DIFFERENT VAT rates like 25%, 15%, 0%):
+When the task mentions products with different VAT rates, follow these steps:
+
+Step 1: Create the customer (if not exists). POST /customer with name, isCustomer:true, organizationNumber.
+
+Step 2: Look up VAT types. GET /ledger/vatType.
+  - 25% outgoing = look for name containing "Utgående" and percentage=25 (usually id=3)
+  - 15% outgoing = look for name containing "Utgående" and percentage=15
+  - 0% exempt = look for name containing "Utgående" and percentage=0 or "fritatt"/"exempt"
+  Use the "id" field (NOT the "number" field).
+
+Step 3: Create a Product for EACH item with its specific VAT rate.
+  POST /product with: name, priceExcludingVatCurrency, vatType:{id: CORRECT_VAT_TYPE_ID}
+  CRITICAL: Each product gets its OWN vatType matching its VAT rate!
+
+Step 4: Create the order. POST /order with customer:{id}, orderDate, deliveryDate.
+
+Step 5: Add order lines. POST /order/orderline for EACH product:
+  {order:{id}, product:{id}, count: QUANTITY}
+
+Step 6: Create the invoice. POST /invoice with invoiceDate, invoiceDueDate, orders:[{id}].
+  The invoice will automatically calculate the correct total with mixed VAT rates.
+
+Step 7: Send if explicitly requested. PUT /invoice/{id}/:send with params={"sendType":"EMAIL"}.
+
+Step 8: Call done().
+
+ORDER-INVOICE-PAYMENT WORKFLOW (for tasks that combine ordering, invoicing, AND payment):
+When the task asks to create an order, invoice it, and register payment:
+
+Step 1: Create the customer (if not exists).
+Step 2: Create products. POST /product for each item.
+Step 3: Create the order. POST /order with customer:{id}, orderDate, deliveryDate.
+Step 4: Add order lines. POST /order/orderline for each product.
+Step 5: Create the invoice. POST /invoice.
+Step 6: Send the invoice if task says send. PUT /invoice/{id}/:send.
+Step 7: Register payment. GET /bank to find payment types. Then:
+  PUT /invoice/{id}/:payment with params={"paymentDate":"YYYY-MM-DD", "paymentTypeId":BANK_ID, "paidAmount":TOTAL}
+Step 8: Call done().
 
 SUPPLIER INVOICE / INCOMING INVOICE WORKFLOW (for "supplier invoice"/"leverandørfaktura"/"Eingangsrechnung"/"facture fournisseur"/"factura proveedor"/"incoming invoice"/"received invoice" tasks):
 The task asks you to register an invoice RECEIVED FROM a supplier (not an outgoing invoice to a customer).
@@ -1265,6 +1315,20 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "  If invoice amount includes 25% VAT on a reminder fee, that is WRONG.\n"
                                 "- Invoice sent if task says 'send'?\n"
                                 "- Partial payment registered on overdue invoice if requested?\n"
+                            )
+                        elif any(kw in _pl for kw in ["avdeling", "department", "abteilung", "d\xe9partement", "departamento"]):
+                            _task_checks = (
+                                "TASK TYPE: Department creation.\n"
+                                "Check: all requested departments created with correct names and unique departmentNumbers.\n"
+                            )
+                        elif any(kw in _pl for kw in ["25%", "15%", "0%", "different vat", "multiple vat", "ulike mva", "verschiedene"]):
+                            _task_checks = (
+                                "TASK TYPE: Multi-VAT invoice.\n"
+                                "Check these SPECIFIC things:\n"
+                                "- Customer created with correct name/org?\n"
+                                "- Each product has the CORRECT vatType matching its VAT rate (25%, 15%, 0%)?\n"
+                                "- Invoice total correct (sum of each product×qty with its specific VAT)?\n"
+                                "- Invoice sent if task says send?\n"
                             )
 
                         verify_prompt = (
