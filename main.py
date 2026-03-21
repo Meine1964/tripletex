@@ -380,13 +380,15 @@ Step 3: Create the project WITH fixed price fields.
 
 Step 4: Create the milestone invoice.
   Calculate milestone amount: fixedprice * (percentage / 100).
-  Example: 25% of 471400 = 117850 NOK.
-  a. GET /ledger/vatType — find outgoing 25% VAT type.
-  b. POST /product — name like "Milestone Payment - PROJECT_NAME", priceExcludingVatCurrency = milestone amount, vatType:{id}.
+  Example: 50% of 274950 = 137475 NOK. This IS the total invoice amount INCLUDING VAT.
+  CRITICAL: The milestone amount is what the customer pays (VAT-inclusive). You must back-calculate the ex-VAT price!
+  a. GET /ledger/vatType — find the OUTGOING ("Utgående") 25% VAT type. Look for name containing "Utgående" and percentage=25. Use its "id" field (NOT the "number" field).
+  b. POST /product — name like "Delbetaling - PROJECT_NAME", priceExcludingVatCurrency = milestoneAmount / 1.25 (to make total INCLUDING 25% VAT equal the milestone amount). vatType:{"id": THE_ID_FROM_STEP_A}.
+     Example: milestone=137475 → priceExcludingVatCurrency = 137475 / 1.25 = 109980.
   c. POST /order — customer:{id}, orderDate, deliveryDate, project:{id}.
   d. POST /order/orderline — order:{id}, product:{id}, count:1.
   e. POST /invoice — invoiceDate, invoiceDueDate, orders:[{id}].
-  f. If task says "send": PUT /invoice/{id}/:send with params={"sendType":"EMAIL"}.
+  f. If task says "send"/"fakturér": PUT /invoice/{id}/:send with params={"sendType":"EMAIL"}.
 
 Step 5: Call done().
 
