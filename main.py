@@ -12,7 +12,7 @@ import urllib3
 import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from openai import OpenAI
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -1593,6 +1593,29 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     return diag
 
 
+LOG_DIR = "/tmp/agent_logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+
+@app.get("/logs")
+async def list_logs():
+    """List all local log files."""
+    files = sorted(os.listdir(LOG_DIR), reverse=True)
+    return JSONResponse([{"name": f, "size": os.path.getsize(os.path.join(LOG_DIR, f))} for f in files if f.endswith(".log")])
+
+
+@app.get("/logs/{filename}")
+async def get_log(filename: str):
+    """Download a specific log file."""
+    import pathlib
+    safe = pathlib.PurePosixPath(filename).name
+    path = os.path.join(LOG_DIR, safe)
+    if not os.path.isfile(path):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    with open(path, "r", encoding="utf-8") as f:
+        return PlainTextResponse(f.read())
+
+
 @app.post("/")
 @app.post("/solve")
 async def solve(request: Request):
@@ -1686,11 +1709,19 @@ async def solve(request: Request):
         status = "ok" if diag.get("done") else "fail"
         iters = diag.get("iterations", 0)
         log_filename = f"{ts_file}_{task_type}_{status}_{iters}iter_{short}.log"
-        # Push synchronously (short timeout) so log is saved before Cloud Run kills the instance
+        # Save locally first (always works, survives GitHub failures)
+        try:
+            local_path = os.path.join(LOG_DIR, log_filename)
+            with open(local_path, "w", encoding="utf-8") as lf:
+                lf.write(log_text)
+            print(f"  ✓ Log saved locally: {log_filename}", flush=True)
+        except Exception as e:
+            print(f"  ⚠ Local log save failed: {e}", flush=True)
+        # Also push to GitHub (best-effort)
         try:
             push_log_to_github(log_text, log_filename)
         except Exception as e:
-            print(f"  ⚠ Log push failed: {e}", flush=True)
+            print(f"  ⚠ GitHub log push failed: {e}", flush=True)
 
     return JSONResponse({
         "status": "completed" if diag.get("done") else "incomplete",
