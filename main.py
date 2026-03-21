@@ -1,7 +1,10 @@
 import base64
+import io
 import json
 import os
 import re
+import sys
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -18,6 +21,60 @@ load_dotenv()
 
 app = FastAPI()
 client = OpenAI()
+
+
+# ── Log capture + GitHub push ────────────────────────────────────
+class LogCapture:
+    """Tees stdout to a StringIO buffer so we can capture all print output."""
+    def __init__(self):
+        self.buffer = io.StringIO()
+        self._original = None
+
+    def write(self, text):
+        if self._original:
+            self._original.write(text)
+        self.buffer.write(text)
+
+    def flush(self):
+        if self._original:
+            self._original.flush()
+
+    def __enter__(self):
+        self._original = sys.stdout
+        sys.stdout = self
+        return self
+
+    def __exit__(self, *args):
+        sys.stdout = self._original
+
+    def getvalue(self):
+        return self.buffer.getvalue()
+
+
+def push_log_to_github(log_text: str, filename: str):
+    """Push a log file to the GitHub repo (non-blocking, best-effort)."""
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        print("  [log] GITHUB_TOKEN not set — skipping log push", flush=True)
+        return
+    try:
+        content_b64 = base64.b64encode(log_text.encode("utf-8")).decode("ascii")
+        url = f"https://api.github.com/repos/Meine1964/tripletex/contents/test_suite/logs/auto/{filename}"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+        data = {
+            "message": f"Auto-log: {filename}",
+            "content": content_b64,
+        }
+        resp = requests.put(url, headers=headers, json=data, timeout=10)
+        if resp.status_code in (200, 201):
+            print(f"  [log] Pushed to GitHub: test_suite/logs/auto/{filename}", flush=True)
+        else:
+            print(f"  [log] GitHub push failed: {resp.status_code} {resp.text[:200]}", flush=True)
+    except Exception as e:
+        print(f"  [log] GitHub push error: {e}", flush=True)
 
 # ── Validation Rules Engine ─────────────────────────────────────
 _RULES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules.yaml")
@@ -1403,8 +1460,10 @@ async def solve(request: Request):
 
     t0 = time.time()
     diag = {}
+    log_capture = LogCapture()
     try:
-        diag = run_agent(prompt, files, base_url, auth) or {}
+        with log_capture:
+            diag = run_agent(prompt, files, base_url, auth) or {}
     except Exception as e:
         import traceback
         print(f"  ✗ AGENT ERROR: {e}", flush=True)
@@ -1415,6 +1474,22 @@ async def solve(request: Request):
     print(f"\n{'='*70}", flush=True)
     print(f"  TASK COMPLETE — total {elapsed:.1f}s", flush=True)
     print(f"{'='*70}\n", flush=True)
+
+    # Push log to GitHub (best-effort, non-blocking)
+    log_text = log_capture.getvalue()
+    if log_text:
+        ts_file = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        # Extract task hint from prompt for readable filename
+        hint_words = re.sub(r'[^\w\s]', '', prompt[:60]).split()[:4]
+        hint = "_".join(hint_words).lower() if hint_words else "task"
+        log_filename = f"{ts_file}_{hint}.log"
+        # Push in background thread so we don't delay the response
+        threading.Thread(
+            target=push_log_to_github,
+            args=(log_text, log_filename),
+            daemon=True,
+        ).start()
+
     return JSONResponse({
         "status": "completed" if diag.get("done") else "incomplete",
         "iterations": diag.get("iterations", 0),
