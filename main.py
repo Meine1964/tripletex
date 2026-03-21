@@ -28,8 +28,14 @@ try:
                                 stderr=_sp.DEVNULL, cwd=os.path.dirname(__file__) or "."
                                 ).decode().strip()
 except Exception:
-    _GIT_SHA = "unknown"
-AGENT_VERSION = _GIT_SHA
+    _GIT_SHA = None
+# Fallback: read from VERSION file (baked in at deploy time)
+if not _GIT_SHA:
+    _ver_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
+    if os.path.exists(_ver_path):
+        with open(_ver_path) as _vf:
+            _GIT_SHA = _vf.read().strip()
+AGENT_VERSION = _GIT_SHA or "unknown"
 
 
 # ── Log capture + GitHub push ────────────────────────────────────
