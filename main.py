@@ -499,6 +499,9 @@ Step 2: Ensure employee has an employment record.
   If POST fails with "Overlappende perioder" (overlapping periods):
     The employee ALREADY HAS employment! GET /employee/employment?employeeId=EMP_ID to find it and use that.
   IMPORTANT: Do NOT try to DELETE employment records — DELETE is not allowed (405). Always use the existing employment.
+  If POST /employee/employment fails with "division.id" error, the sandbox may not support division assignment.
+  In that case, SKIP creating new employment — use the existing one! GET /employee/employment?employeeId=X to find it.
+  An employment with division=null is still USABLE for salary transactions and employment details.
 
 Step 2b: Look up salary types.
   GET /salary/type — returns available salary types. Key types:
@@ -1848,6 +1851,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         if "amount" in p and "amountCurrency" not in p:
                             p["amountCurrency"] = p["amount"]
                             print(f"    │  [fix] voucher posting[{idx}]: added amountCurrency", flush=True)
+                        # Strip accountingDimensionValue — not a valid field on voucher postings
+                        if "accountingDimensionValue" in p:
+                            p.pop("accountingDimensionValue")
+                            print(f"    │  [fix] voucher posting[{idx}]: stripped accountingDimensionValue (not supported)", flush=True)
 
                 # Auto-fix: POST /employee/employment/details — ensure employment ref + defaults
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment/details"
@@ -2019,11 +2026,46 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     result["_hint"] = (
                                         f"Employee {emp_id_from_body} ALREADY HAS an employment record (id={existing.get('id')}). "
                                         f"Division set: {has_div}. "
-                                        f"{'Proceed directly to creating salary transaction — the employment is ready.' if has_div else 'The employment has NO division. Try DELETE /employee/employment/' + str(existing.get('id')) + ' then create a new one with division.'}"
+                                        f"USE THIS EXISTING EMPLOYMENT — do NOT try to delete or recreate it. "
+                                        f"Proceed directly to the next step (salary transaction, employment details, etc.) using employment id={existing.get('id')}."
                                     )
                                     print(f"    │  [auto-fix] existing employment id={existing.get('id')}, division={has_div}", flush=True)
                             except Exception as e:
                                 print(f"    │  [auto-fix] employment lookup failed: {e}", flush=True)
+
+                # Auto-fix: project manager access error — grant access and retry
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/project"
+                        and sc == 422 and result.get("validationMessages")):
+                    pm_error = any("prosjektleder" in (m.get("message", "") or "").lower()
+                                    for m in result.get("validationMessages", []))
+                    if pm_error:
+                        pm_id = (req_body or {}).get("projectManager", {}).get("id")
+                        if pm_id:
+                            result["_hint"] = (
+                                f"The employee (id={pm_id}) does not have project manager access. "
+                                f"Grant access first: PUT /employee/{pm_id} with body including "
+                                f"'allowInformationRegistration': true. "
+                                f"Then retry POST /project with the same data."
+                            )
+                            print(f"    │  [hint] project manager {pm_id} needs access — injected guidance", flush=True)
+
+                # Auto-fix: division.id error on POST /employee/employment — try without division
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
+                        and sc == 422 and req_body):
+                    div_error = any("division" in (m.get("field", "") or "")
+                                    for m in result.get("validationMessages", []))
+                    if div_error and req_body.get("division"):
+                        # Retry without division — some sandboxes don't support it
+                        print(f"    │  [auto-fix] division.id rejected — retrying without division", flush=True)
+                        retry_body = {k: v for k, v in req_body.items() if k != "division"}
+                        retry_result = call_tripletex(base_url, auth, "POST", "/employee/employment", body=retry_body)
+                        retry_sc = retry_result.get("_status_code", 200)
+                        if retry_sc < 400:
+                            result = retry_result
+                            sc = retry_sc
+                            print(f"    │  [auto-fix] employment created without division OK", flush=True)
+                        else:
+                            print(f"    │  [auto-fix] retry without division also failed: {retry_sc}", flush=True)
 
                 # Track fixed-price project creation + diagnostic GET-back
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/project"
