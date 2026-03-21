@@ -1918,6 +1918,32 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         req_body["deliveryDate"] = req_body.get("orderDate", today)
                         print(f"    │  [fix] order: added deliveryDate", flush=True)
 
+                # Auto-fix: validate date fields in body — fix invalid dates like Feb 29 in non-leap year
+                if req_body and args["method"] in ("POST", "PUT"):
+                    import calendar
+                    _date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+                    def _fix_dates_in_obj(obj, path_prefix=""):
+                        if isinstance(obj, dict):
+                            for k, v in list(obj.items()):
+                                if isinstance(v, str) and _date_re.match(v):
+                                    try:
+                                        datetime.strptime(v, "%Y-%m-%d")
+                                    except ValueError:
+                                        # Invalid date — cap day to last valid day of month
+                                        parts = v.split("-")
+                                        y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+                                        if 1 <= m <= 12:
+                                            max_day = calendar.monthrange(y, m)[1]
+                                            fixed = f"{y:04d}-{m:02d}-{max_day:02d}"
+                                            obj[k] = fixed
+                                            print(f"    │  [fix] invalid date {path_prefix}{k}: {v} → {fixed}", flush=True)
+                                elif isinstance(v, (dict, list)):
+                                    _fix_dates_in_obj(v, f"{path_prefix}{k}.")
+                        elif isinstance(obj, list):
+                            for i, item in enumerate(obj):
+                                _fix_dates_in_obj(item, f"{path_prefix}[{i}].")
+                    _fix_dates_in_obj(req_body)
+
                 # Auto-fix: milestone product pricing — price should be ex-VAT
                 # If we tracked a fixedprice and now POST /product with price = fixedprice * fraction,
                 # the LLM likely forgot to divide by 1.25. Auto-correct.
