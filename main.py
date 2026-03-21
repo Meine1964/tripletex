@@ -711,7 +711,7 @@ TOOLS = [
 ]
 
 
-def _fmt(d, max_len: int = 300) -> str:
+def _fmt(d, max_len: int = 800) -> str:
     if not d:
         return ""
     s = json.dumps(d, ensure_ascii=False)
@@ -764,7 +764,7 @@ def call_tripletex(base_url: str, auth: tuple, method: str, path: str,
             data = {"raw": resp.text}
         if resp.status_code >= 400:
             data["_status_code"] = resp.status_code
-            err = json.dumps(data, ensure_ascii=False)[:600]
+            err = json.dumps(data, ensure_ascii=False)[:2000]
             print(f"    └─ {resp.status_code} ERR ({elapsed:.1f}s) {err}", flush=True)
         else:
             extra = ""
@@ -925,10 +925,15 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
         diag["iterations"] = iteration + 1
 
+        # Log message history size for token budget awareness
+        msg_count = len(messages)
+        approx_chars = sum(len(m.get("content", "") if isinstance(m, dict) else (m.content or "")) for m in messages)
+        print(f"  Messages: {msg_count} ({approx_chars:,} chars)", flush=True)
+
         if not msg.tool_calls:
             # GPT stopped without calling done() — nudge it to continue or call done()
             if iteration < 24:
-                print(f"  ⚠ No tool calls — nudging GPT to continue or call done()...", flush=True)
+                print(f"  ⚠ NUDGE — no tool calls, re-prompting GPT (reason: {msg.finish_reason})", flush=True)
                 messages.append({
                     "role": "user",
                     "content": "You must either continue with the next API call or call done() if the task is complete. Do NOT output text without a tool call. What is the next step?"
@@ -942,7 +947,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
             if tc.function.name == "done":
                 print(f"    [{i+1}] done()", flush=True)
             else:
-                args_preview = tc.function.arguments[:200]
+                args_preview = tc.function.arguments[:800]
                 print(f"    [{i+1}] {tc.function.name}({args_preview})", flush=True)
 
         for tool_call in msg.tool_calls:
@@ -1022,14 +1027,19 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             "- 'PASS' if everything looks correct\n"
                             "- 'FAIL: <specific issue>' if something is wrong"
                         )
+                        print(f"  📋 Verification prompt ({len(verify_prompt)} chars):", flush=True)
+                        # Log the prompt in chunks for readability
+                        for vp_line in verify_prompt.split("\n"):
+                            print(f"    │ {vp_line}", flush=True)
                         verify_resp = client.chat.completions.create(
                             model="gpt-4o-mini",
                             messages=[{"role": "user", "content": verify_prompt}],
-                            max_tokens=200,
+                            max_tokens=300,
                             temperature=0,
                         )
                         verdict = verify_resp.choices[0].message.content.strip()
-                        print(f"  🔍 Verification: {verdict}", flush=True)
+                        v_tokens = verify_resp.usage.total_tokens if verify_resp.usage else 0
+                        print(f"  🔍 Verification ({v_tokens} tokens): {verdict}", flush=True)
                         if verdict.upper().startswith("FAIL"):
                             # Reject done() — feed back to agent
                             messages.append({
@@ -1336,7 +1346,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
                 result_str = json.dumps(result, ensure_ascii=False)
                 # Log response data (truncated for readability)
-                preview = result_str[:400] + "…" if len(result_str) > 400 else result_str
+                preview = result_str[:1500] + "…" if len(result_str) > 1500 else result_str
                 print(f"    │  response: {preview}", flush=True)
                 if len(result_str) > 8000:
                     result_str = result_str[:8000] + "...(truncated)"
