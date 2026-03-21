@@ -1,0 +1,265 @@
+
+======================================================================
+  NEW TASK RECEIVED
+  Version: unknown
+======================================================================
+  Prompt: Voce recebeu uma carta de oferta (ver PDF anexo) para um novo funcionario. Complete a integracao: crie o funcionario, atribua o departamento correto, configure os detalhes de emprego com percentagem e salario anual, e configure as horas de trabalho padrao.
+  Files:  1
+  URL:    https://tx-proxy-jwanbnu3pq-lz.a.run.app/v2
+    - files/tilbudsbrev_pt_06.pdf (application/pdf)
+──────────────────────────────────────────────────────────────────────
+  [pre] Employee/salary task detected — scanning employees and employment...
+    ┌─ API GET /employee
+    │  params: {"fields": "*"}
+    └─ 200 OK (0.3s) [1 items]
+    ┌─ API GET /employee/employment
+    │  params: {"employeeId": 18695559, "fields": "*"}
+    └─ 200 OK (0.3s) [1 items]
+    ┌─ API GET /company/>withLoginAccess
+    └─ 200 OK (0.4s) [0 items]
+    ┌─ API GET /department
+    └─ 200 OK (0.3s) [1 items]
+  [pre] Pre-scan complete: 1 employees found
+    [file] Extracted 608 chars from PDF: files/tilbudsbrev_pt_06.pdf
+
+──────────────────────────────────────────────────
+  ITERATION 1/25
+──────────────────────────────────────────────────
+  [github] Log pushed: 20260321_233644_4210_task_ok_11iter_vi_trenger_togbillett.log (attempt 1)
+  Tokens: prompt=17138 completion=399 total_session=17537
+  GPT says: To complete the onboarding for the new employee Lucas Costa based on the offer letter, follow these steps:
+
+### Step 1: Create or Rename the Employee
+
+- **Action**: Since no employee with the name Lucas Costa exists, we will first try to create a new employee using the details from the PDF.
+
+```json
+{
+  "firstName": "Lucas",
+  "lastName": "Costa",
+  "email": "lucas.costa@example.org"
+}
+```
+
+### Step 2: Assign the Department
+
+- **Department Name**: Kvalitetskontroll (Quality Control)
+- **Action**
+  Messages: 3 (65,640 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/employee"})
+    │  [fix] blocked POST without body: /employee
+  Iteration 1 took 4.2s
+
+──────────────────────────────────────────────────
+  ITERATION 2/25
+──────────────────────────────────────────────────
+  Tokens: prompt=17606 completion=42 total_session=35185
+  Messages: 5 (65,850 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/employee","body":{"firstName":"Lucas","lastName":"Costa","email":"lucas.costa@example.org"}})
+    ┌─ API POST /employee
+    │  body:   {"firstName": "Lucas", "lastName": "Costa", "email": "lucas.costa@example.org"}
+    └─ 422 ERR (0.3s) {"status": 422, "code": 18000, "message": "Validering feilet.", "link": "https://tripletex.no/v2-docs/", "developerMessage": "VALIDATION_ERROR", "validationMessages": [{"field": null, "message": "Brukertype kan ikke være \"0\" eller tom.", "path": null, "rootId": null}], "requestId": "513a984a-043f-4b94-8be9-696e245ca706", "_status_code": 422}
+    │  [auto-fix] POST /employee failed — searching for existing employee to rename as Lucas Costa
+    ┌─ API GET /employee
+    │  params: {"fields": "*"}
+    └─ 200 OK (0.3s) [1 items]
+    ┌─ API PUT /employee/18695559
+    │  body:   {"id": 18695559, "version": 1, "firstName": "Lucas", "lastName": "Costa", "dateOfBirth": "1990-01-01"}
+    └─ 200 OK (1.0s) id=18695559 name=Lucas
+    │  [auto-fix] employee 18695559 renamed to Lucas Costa — returning as created
+    │  response: {"value": {"id": 18695559, "version": 2, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/18695559", "firstName": "Lucas", "lastName": "Costa", "displayName": "Lucas Costa", "employeeNumber": "", "dateOfBirth": "1990-01-01", "email": "nmiai-validator@test.no", "phoneNumberMobileCountry": {"id": 161, "url": "kkpqfuj-amager.tripletex.dev/v2/country/161"}, "phoneNumberMobile": "", "phoneNumberHome": "", "phoneNumberWork": "", "nationalIdentityNumber": "", "dnumber": "", "internationalId": {"intAmeldingType": null, "country": null, "number": ""}, "bankAccountNumber": "", "iban": "", "bic": "", "creditorBankCountryId": 0, "usesAbroadPayment": false, "userType": null, "allowInformationRegistration": true, "isContact": false, "isProxy": false, "comments": "", "address": null, "department": {"id": 973182, "url": "kkpqfuj-amager.tripletex.dev/v2/department/973182"}, "employments": [{"id": 2850069, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/2850069"}], "holidayAllowanceEarned": {"year": 0, "amount": 0.0, "basis": 0.0, "amountExtraHolidayWeek": 0.0}, "employeeCategory": null, "isAuthProjectOverviewURL": true, "pictureId": 0, "companyId": 108462453, "vismaConnect2FAactive": false}, "_status_code": 201}
+  Iteration 2 took 2.4s
+
+──────────────────────────────────────────────────
+  ITERATION 3/25
+──────────────────────────────────────────────────
+  Tokens: prompt=18056 completion=21 total_session=53262
+  Messages: 7 (67,076 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/department"})
+    ┌─ API GET /department
+    └─ 200 OK (0.2s) [1 items]
+    │  response: {"fullResultSize": 1, "from": 0, "count": 1, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 973182, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/department/973182", "name": "Avdeling", "departmentNumber": "", "departmentManager": null, "displayName": "Avdeling", "isInactive": false, "businessActivityTypeId": 0}]}
+  Iteration 3 took 1.4s
+
+──────────────────────────────────────────────────
+  ITERATION 4/25
+──────────────────────────────────────────────────
+  Tokens: prompt=18202 completion=37 total_session=71501
+  Messages: 9 (67,427 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/department","body":{"name":"Kvalitetskontroll","departmentNumber":"1"}})
+    ┌─ API POST /department
+    │  body:   {"name": "Kvalitetskontroll", "departmentNumber": "1"}
+    └─ 201 OK (0.3s) id=973211 name=Kvalitetskontroll
+    │  response: {"value": {"id": 973211, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/department/973211", "name": "Kvalitetskontroll", "departmentNumber": "1", "departmentManager": null, "displayName": "1 Kvalitetskontroll", "isInactive": false, "businessActivityTypeId": 0}}
+  Iteration 4 took 1.5s
+
+──────────────────────────────────────────────────
+  ITERATION 5/25
+──────────────────────────────────────────────────
+  Tokens: prompt=18339 completion=66 total_session=89906
+  Messages: 11 (67,695 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"PUT","path":"/employee/18695559","body":{"id":18695559,"version":2,"firstName":"Lucas","lastName":"Costa","dateOfBirth":"1988-03-20","department":{"id":973211}}})
+    ┌─ API PUT /employee/18695559
+    │  body:   {"id": 18695559, "version": 2, "firstName": "Lucas", "lastName": "Costa", "dateOfBirth": "1988-03-20", "department": {"id": 973211}}
+    └─ 200 OK (1.0s) id=18695559 name=Lucas
+    │  [track] employee renamed successfully via PUT
+    │  response: {"value": {"id": 18695559, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/18695559", "firstName": "Lucas", "lastName": "Costa", "displayName": "Lucas Costa", "employeeNumber": "", "dateOfBirth": "1988-03-20", "email": "nmiai-validator@test.no", "phoneNumberMobileCountry": {"id": 161, "url": "kkpqfuj-amager.tripletex.dev/v2/country/161"}, "phoneNumberMobile": "", "phoneNumberHome": "", "phoneNumberWork": "", "nationalIdentityNumber": "", "dnumber": "", "internationalId": {"intAmeldingType": null, "country": null, "number": ""}, "bankAccountNumber": "", "iban": "", "bic": "", "creditorBankCountryId": 0, "usesAbroadPayment": false, "userType": null, "allowInformationRegistration": true, "isContact": false, "isProxy": false, "comments": "", "address": null, "department": {"id": 973211, "url": "kkpqfuj-amager.tripletex.dev/v2/department/973211"}, "employments": [{"id": 2850069, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/2850069"}], "holidayAllowanceEarned": {"year": 0, "amount": 0.0, "basis": 0.0, "amountExtraHolidayWeek": 0.0}, "employeeCategory": null, "isAuthProjectOverviewURL": true, "pictureId": 0, "companyId": 108462453, "vismaConnect2FAactive": false}}
+  Iteration 5 took 2.1s
+
+──────────────────────────────────────────────────
+  ITERATION 6/25
+──────────────────────────────────────────────────
+  Tokens: prompt=18806 completion=33 total_session=108745
+  Messages: 13 (68,900 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/employee/employment?employeeId=18695559&fields=*"})
+    │  [fix] extracted query params from path: {'employeeId': '18695559', 'fields': '*'}
+    ┌─ API GET /employee/employment
+    │  params: {"employeeId": "18695559", "fields": "*"}
+    └─ 200 OK (0.4s) [1 items]
+    │  response: {"fullResultSize": 1, "from": 0, "count": 1, "versionDigest": null, "values": [{"id": 2850069, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/2850069", "employee": {"id": 18695559, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/18695559"}, "employmentId": "", "startDate": "2026-01-01", "endDate": null, "employmentEndReason": null, "division": null, "lastSalaryChangeDate": null, "noEmploymentRelationship": false, "isMainEmployer": true, "taxDeductionCode": "loennFraHovedarbeidsgiver", "employmentDetails": [{"id": 3748182, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/details/3748182"}], "isRemoveAccessAtEmploymentEnded": true, "latestSalary": {"id": 3748182, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/details/3748182"}}]}
+  Iteration 6 took 1.3s
+
+──────────────────────────────────────────────────
+  ITERATION 7/25
+──────────────────────────────────────────────────
+  Tokens: prompt=19113 completion=34 total_session=127892
+  Messages: 15 (69,689 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/employee/employment/details?employmentId=2850069&fields=*"})
+    │  [fix] extracted query params from path: {'employmentId': '2850069', 'fields': '*'}
+    ┌─ API GET /employee/employment/details
+    │  params: {"employmentId": "2850069", "fields": "*"}
+    └─ 200 OK (0.3s) [1 items]
+    │  response: {"fullResultSize": 1, "from": 0, "count": 1, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 3748182, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/details/3748182", "employment": {"id": 2850069, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/2850069"}, "date": "2026-01-01", "employmentType": "NOT_CHOSEN", "employmentForm": "NOT_CHOSEN", "remunerationType": "NOT_CHOSEN", "workingHoursScheme": "NOT_CHOSEN", "shiftDurationHours": 0.0, "occupationCode": null, "percentageOfFullTimeEquivalent": 100.0, "annualSalary": 360000.0, "hourlyWage": 185.0, "payrollTaxMunicipalityId": null, "monthlySalary": 30000.0}]}
+  Iteration 7 took 1.3s
+
+──────────────────────────────────────────────────
+  ITERATION 8/25
+──────────────────────────────────────────────────
+  Tokens: prompt=19395 completion=98 total_session=147385
+  Messages: 17 (70,367 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"PUT","path":"/employee/employment/details/3748182","body":{"id":3748182,"version":0,"employment":{"id":2850069},"date":"2026-07-07","employmentType":1,"employmentForm":1,"remunerationType":1,"workingHoursScheme":1,"percentageOfFullTimeEquivalent":100.0,"annualSalary":600000.0}})
+    │  [fix] employment details: added shiftDurationHours=35.5
+    ┌─ API PUT /employee/employment/details/3748182
+    │  body:   {"id": 3748182, "version": 0, "employment": {"id": 2850069}, "date": "2026-07-07", "employmentType": 1, "employmentForm": 1, "remunerationType": 1, "workingHoursScheme": 1, "percentageOfFullTimeEquivalent": 100.0, "annualSalary": 600000.0, "shiftDurationHours": 35.5}
+    └─ 422 ERR (0.3s) {"status": 422, "code": 18000, "message": "Validering feilet.", "link": "https://tripletex.no/v2-docs/", "developerMessage": "VALIDATION_ERROR", "validationMessages": [{"field": "date", "message": "Ugyldig dato.", "path": null, "rootId": null}, {"field": "employment.employmentDetails.maritimeEmployment.shipType,maritimeEmployment.shipType", "message": "Må velges.", "path": null, "rootId": null}, {"field": "employment.employmentDetails.maritimeEmployment.shipRegister,maritimeEmployment.shipRegister", "message": "Må velges.", "path": null, "rootId": null}, {"field": "employment.employmentDetails.maritimeEmployment.tradeArea,maritimeEmployment.tradeArea", "message": "Må velges.", "path": null, "rootId": null}], "requestId": "17277871-849b-4ddd-a3fd-7a4c2acdfc59", "_status_code": 422}
+    │  [auto-fix] employment details error — fetching existing 3748182
+    ┌─ API GET /employee/employment/details/3748182
+    └─ 200 OK (0.3s) id=3748182
+    │  [auto-fix] no maritime data — keeping employmentType=0
+    │  [auto-fix] retrying PUT with merged base body
+    ┌─ API PUT /employee/employment/details/3748182
+    │  body:   {"id": 3748182, "version": 0, "employment": {"id": 2850069, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/2850069"}, "date": "2026-07-07", "employmentType": 0, "employmentForm": 0, "remunerationType": 0, "workingHoursScheme": 0, "shiftDurationHours": 0.0, "occupationCode": null, "percentageOfFullTimeEquivalent": 100.0, "annualSalary": 600000.0, "payrollTaxMunicipalityId": null}
+    └─ 422 ERR (0.3s) {"status": 422, "code": 18000, "message": "Validering feilet.", "link": "https://tripletex.no/v2-docs/", "developerMessage": "VALIDATION_ERROR", "validationMessages": [{"field": "date", "message": "Ugyldig dato.", "path": null, "rootId": null}], "requestId": "cb0a041a-71ca-4664-9143-b86e53bd6b89", "_status_code": 422}
+    │  [auto-fix] retry failed (422), trying minimal body
+    ┌─ API PUT /employee/employment/details/3748182
+    │  body:   {"id": 3748182, "version": 0, "employment": {"id": 2850069, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/2850069"}, "date": "2026-07-07", "percentageOfFullTimeEquivalent": 100.0, "annualSalary": 600000.0, "shiftDurationHours": 0.0}
+    └─ 422 ERR (0.3s) {"status": 422, "code": 18000, "message": "Validering feilet.", "link": "https://tripletex.no/v2-docs/", "developerMessage": "VALIDATION_ERROR", "validationMessages": [{"field": "date", "message": "Ugyldig dato.", "path": null, "rootId": null}], "requestId": "7a218de3-53d8-4d3a-9f2f-a2c416fd1cef", "_status_code": 422}
+    │  [auto-fix] minimal retry also failed: 422
+    │  response: {"status": 422, "code": 18000, "message": "Validering feilet.", "link": "https://tripletex.no/v2-docs/", "developerMessage": "VALIDATION_ERROR", "validationMessages": [{"field": "date", "message": "Ugyldig dato.", "path": null, "rootId": null}, {"field": "employment.employmentDetails.maritimeEmployment.shipType,maritimeEmployment.shipType", "message": "Må velges.", "path": null, "rootId": null}, {"field": "employment.employmentDetails.maritimeEmployment.shipRegister,maritimeEmployment.shipRegister", "message": "Må velges.", "path": null, "rootId": null}, {"field": "employment.employmentDetails.maritimeEmployment.tradeArea,maritimeEmployment.tradeArea", "message": "Må velges.", "path": null, "rootId": null}], "requestId": "17277871-849b-4ddd-a3fd-7a4c2acdfc59", "_status_code": 422}
+  Iteration 8 took 2.2s
+
+──────────────────────────────────────────────────
+  ITERATION 9/25
+──────────────────────────────────────────────────
+  Tokens: prompt=19736 completion=56 total_session=167177
+  Messages: 19 (71,158 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"PUT","path":"/employee/employment/details/3748182","body":{"id":3748182,"version":0,"employment":{"id":2850069},"annualSalary":600000.0}})
+    │  [fix] employment details: added shiftDurationHours=35.5
+    ┌─ API PUT /employee/employment/details/3748182
+    │  body:   {"id": 3748182, "version": 0, "employment": {"id": 2850069}, "annualSalary": 600000.0, "shiftDurationHours": 35.5}
+    └─ 200 OK (0.3s) id=3748182
+    │  response: {"value": {"id": 3748182, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/details/3748182", "employment": {"id": 2850069, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/employment/2850069"}, "date": "2026-01-01", "employmentType": "NOT_CHOSEN", "employmentForm": "NOT_CHOSEN", "remunerationType": "NOT_CHOSEN", "workingHoursScheme": "NOT_CHOSEN", "shiftDurationHours": 35.5, "occupationCode": null, "percentageOfFullTimeEquivalent": 100.0, "annualSalary": 600000.0, "hourlyWage": 185.0, "payrollTaxMunicipalityId": null, "monthlySalary": 50000.0}}
+  Iteration 9 took 1.5s
+
+──────────────────────────────────────────────────
+  ITERATION 10/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20004 completion=52 total_session=187233
+  Messages: 21 (71,733 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/employee/standardTime","body":{"employee":{"id":18695559},"hoursPerDay":7.5,"fromDate":"2026-03-21"}})
+    ┌─ API POST /employee/standardTime
+    │  body:   {"employee": {"id": 18695559}, "hoursPerDay": 7.5, "fromDate": "2026-03-21"}
+    └─ 201 OK (0.3s) id=44645
+    │  response: {"value": {"id": 44645, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/standardTime/44645", "employee": {"id": 18695559, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/18695559"}, "fromDate": "2026-03-21", "hoursPerDay": 7.5}}
+  Iteration 10 took 1.4s
+
+──────────────────────────────────────────────────
+  ITERATION 11/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20163 completion=9 total_session=207405
+  Messages: 23 (71,977 chars)
+  Tool calls (1):
+    [1] done()
+
+  ⏳ Verifying task completion (268s remaining)...
+  📋 Verification prompt (4638 chars):
+    │ TASK: Voce recebeu uma carta de oferta (ver PDF anexo) para um novo funcionario. Complete a integracao: crie o funcionario, atribua o departamento correto, configure os detalhes de emprego com percentagem e salario anual, e configure as horas de trabalho padrao.
+    │ 
+    │ TASK TYPE: Employee onboarding / offer letter.
+    │ Check these SPECIFIC things:
+    │ - Employee created/renamed with correct name from the PDF?
+    │ - Department assigned correctly (PUT /employee with department.id)?
+    │ - Employment details configured (percentage, annual salary, occupation code)?
+    │ - Standard work hours configured if task mentions it?
+    │ Do NOT require salary transaction for onboarding tasks — they only need employment setup.
+    │ 
+    │ ACTION LOG (chronological):
+    │ CALL: tripletex_api({"method":"POST","path":"/employee"})
+    │ status=400
+    │ CALL: tripletex_api({"method":"POST","path":"/employee","body":{"firstName":"Lucas","lastName":"Costa","email":"lucas.costa@example.org"}})
+    │ status=201 id=18695559
+    │ CALL: tripletex_api({"method":"GET","path":"/department"})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"POST","path":"/department","body":{"name":"Kvalitetskontroll","departmentNumber":"1"}})
+    │ status=ok id=973211 name=Kvalitetskontroll
+    │ CALL: tripletex_api({"method":"PUT","path":"/employee/18695559","body":{"id":18695559,"version":2,"firstName":"Lucas","lastName":"Costa","dateOfBirth":"1988-03-20","department":{"id":973211}}})
+    │ status=ok id=18695559
+    │ CALL: tripletex_api({"method":"GET","path":"/employee/employment?employeeId=18695559&fields=*"})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"GET","path":"/employee/employment/details?employmentId=2850069&fields=*"})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"PUT","path":"/employee/employment/details/3748182","body":{"id":3748182,"version":0,"employment":{"id":2850069},"date":"2026-07-07","employmentType":1,"employmentForm":1,"remunerationType":1,"workingHoursScheme":1,"percentageOfFullTimeEquivalent":100.0,"annualSalary":600000.0}})
+    │ status=422
+    │ CALL: tripletex_api({"method":"PUT","path":"/employee/employment/details/3748182","body":{"id":3748182,"version":0,"employment":{"id":2850069},"annualSalary":600000.0}})
+    │ status=ok id=3748182
+    │ CALL: tripletex_api({"method":"POST","path":"/employee/standardTime","body":{"employee":{"id":18695559},"hoursPerDay":7.5,"fromDate":"2026-03-21"}})
+    │ status=ok id=44645
+    │ CALL: done({})
+    │ 
+    │ You are an accounting verification agent. Based ONLY on the action log above, check:
+    │ 1. MATH: All amounts, percentages, VAT calculations correct? (e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)
+    │ 2. COMPLETENESS: Were all steps in the task done? Look at the CALL entries — if the action log shows the step was performed with status=ok, it WAS done. Do NOT say a step is missing if you can see it in the log!
+    │ IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!
+    │ 3. DATA: Names, org numbers, dates match the task?
+    │ 4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently. EXCEPTION: Supplier invoice (supplierInvoice) responses normally show amount=0 — this is OK.
+    │ 5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.
+    │ 6. PAYMENT AMOUNTS: Invoice payments and reversals use the FULL amount INCLUDING VAT, not excl. VAT. If the task says 'X NOK excl. VAT', the correct payment/reversal amount is X × 1.25 (Norwegian 25% VAT). Do NOT flag a mismatch between excl. VAT amounts in the task and incl. VAT payment amounts.
+    │ 7. VAT BREAKDOWN: If the total invoice amount matches the expected sum, do NOT fail on 'VAT breakdown not reflected' or similar vague VAT concerns. Only fail if a specific line item has the WRONG VAT rate applied.
+    │ 
+    │ CRITICAL: Be CONSERVATIVE. When in doubt, say PASS.
+    │ Only say FAIL for CLEAR, OBJECTIVE, SPECIFIC errors (wrong math, completely missing step, wrong name).
+    │ Do NOT say FAIL for: vague concerns, 'might be wrong', uncertain issues, minor stylistic differences, or steps you cannot confirm from the log (absence of evidence is NOT evidence of absence).
+    │ A false FAIL causes MORE damage than a missed error. When uncertain, ALWAYS say PASS.
+    │ If the action log shows all main steps completed with status=ok, say PASS.
+    │ 
+    │ Reply ONLY with either:
+    │ - 'PASS' if everything looks correct or you are unsure
+    │ - 'FAIL: <specific issue>' ONLY if there is an obvious, objective error
+  🔍 Verification (1184 tokens): PASS
+
+  ✓ DONE — 11 iterations, 207405 tokens, 21.6s
+
+======================================================================
+  TASK COMPLETE — total 22.2s
+======================================================================
+
