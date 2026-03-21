@@ -1,0 +1,80 @@
+
+======================================================================
+  NEW TASK RECEIVED
+  Version: unknown
+======================================================================
+  Prompt: Create the customer Brightstone Ltd with organization number 853284882. The address is Parkveien 61, 5003 Bergen. Email: post@brightstone.no.
+  Files:  0
+  URL:    https://tx-proxy-jwanbnu3pq-lz.a.run.app/v2
+──────────────────────────────────────────────────────────────────────
+
+──────────────────────────────────────────────────
+  ITERATION 1/25
+──────────────────────────────────────────────────
+  Tokens: prompt=14926 completion=21 total_session=14947
+  Messages: 3 (56,083 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/customer"})
+    │  [fix] blocked POST without body: /customer
+  Iteration 1 took 2.7s
+
+──────────────────────────────────────────────────
+  ITERATION 2/25
+──────────────────────────────────────────────────
+  Tokens: prompt=15013 completion=119 total_session=30079
+  Messages: 5 (56,293 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/customer","body":{"name":"Brightstone Ltd","isCustomer":true,"organizationNumber":"853284882","email":"post@brightstone.no","invoiceEmail":"post@brightstone.no","overdueNoticeEmail":"post@brightstone.no","physicalAddress":{"addressLine1":"Parkveien 61","postalCode":"5003","city":"Bergen"},"postalAddress":{"addressLine1":"Parkveien 61","postalCode":"5003","city":"Bergen"}}})
+    ┌─ API POST /customer
+    │  body:   {"name": "Brightstone Ltd", "isCustomer": true, "organizationNumber": "853284882", "email": "post@brightstone.no", "invoiceEmail": "post@brightstone.no", "overdueNoticeEmail": "post@brightstone.no", "physicalAddress": {"addressLine1": "Parkveien 61", "postalCode": "5003", "city": "Bergen"}, "postalAddress": {"addressLine1": "Parkveien 61", "postalCode": "5003", "city": "Bergen"}}
+    └─ 201 OK (2.7s) id=108404959 name=Brightstone Ltd
+    │  response: {"value": {"id": 108404959, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108404959", "name": "Brightstone Ltd", "organizationNumber": "853284882", "globalLocationNumber": 0, "supplierNumber": 0, "customerNumber": 10001, "isSupplier": false, "isCustomer": true, "isInactive": false, "accountManager": null, "department": null, "email": "post@brightstone.no", "invoiceEmail": "post@brightstone.no", "overdueNoticeEmail": "post@brightstone.no", "phoneNumber": "", "phoneNumberMobile": "", "description": "", "language": "NO", "displayName": "Brightstone Ltd (10001)", "isPrivateIndividual": false, "singleCustomerInvoice": false, "invoiceSendMethod": "EMAIL", "emailAttachmentType": "ATTACHMENT", "postalAddress": {"id": 405658796, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/address/405658796", "addressLine1": "Parkveien 61", "addressLine2": "", "postalCode": "5003", "city": "Bergen", "country": {"id": 161, "url": "kkpqfuj-amager.tripletex.dev/v2/country/161"}, "displayName": "Brightstone Ltd, Parkveien 61, 5003 Bergen, Norge", "addressAsString": "Parkveien 61, 5003 Bergen, Norge", "displayNameInklMatrikkel": "Brightstone Ltd, Parkveien 61, 5003 Bergen, Norge", "knr": 0, "gnr": 0, "bnr": 0, "fnr": 0, "snr": 0, "unitNumber": ""}, "physicalAddress": {"id": 405658795, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/address/405658795", "addressLine1": "Parkveien 61", "addressLine2": "", "postalCode": "5003", "city": "Bergen", "country": {"id": 161, "url": "kk…
+  Iteration 2 took 4.3s
+
+──────────────────────────────────────────────────
+  ITERATION 3/25
+──────────────────────────────────────────────────
+  Tokens: prompt=15951 completion=9 total_session=46039
+  Messages: 7 (58,717 chars)
+  Tool calls (1):
+    [1] done()
+
+  ⏳ Verifying task completion (282s remaining)...
+  📋 Verification prompt (2950 chars):
+    │ TASK: Create the customer Brightstone Ltd with organization number 853284882. The address is Parkveien 61, 5003 Bergen. Email: post@brightstone.no.
+    │ 
+    │ 
+    │ ACTION LOG (chronological):
+    │ CALL: tripletex_api({"method":"POST","path":"/customer"})
+    │ status=400
+    │ CALL: tripletex_api({"method":"POST","path":"/customer","body":{"name":"Brightstone Ltd","isCustomer":true,"organizationNumber":"853284882","email":"post@brightstone.no","invoiceEmail":"post@brightstone.no","overdueNoticeEmail":"post@brightstone.no","physicalAddress":{"addressLine1":"Parkveien 61","postalCode":"5003",")
+    │ status=ok id=108404959 name=Brightstone Ltd
+    │ CALL: done({})
+    │ 
+    │ You are an accounting verification agent. Based ONLY on the action log above, check:
+    │ 1. MATH: All amounts, percentages, VAT calculations correct? (e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)
+    │ 2. COMPLETENESS: Were all steps in the task done? Look at the CALL entries — if the action log shows the step was performed with status=ok, it WAS done. Do NOT say a step is missing if you can see it in the log!
+    │ IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!
+    │ 3. DATA: Names, org numbers, dates match the task?
+    │ 4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently. EXCEPTION: Supplier invoice (supplierInvoice) responses normally show amount=0 — this is OK.
+    │ 5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.
+    │ 6. PAYMENT AMOUNTS: Invoice payments and reversals use the FULL amount INCLUDING VAT, not excl. VAT. If the task says 'X NOK excl. VAT', the correct payment/reversal amount is X × 1.25 (Norwegian 25% VAT). Do NOT flag a mismatch between excl. VAT amounts in the task and incl. VAT payment amounts.
+    │ 7. VAT BREAKDOWN: If the total invoice amount matches the expected sum, do NOT fail on 'VAT breakdown not reflected' or similar vague VAT concerns. Only fail if a specific line item has the WRONG VAT rate applied.
+    │ 
+    │ CRITICAL: Be CONSERVATIVE. When in doubt, say PASS.
+    │ Only say FAIL for CLEAR, OBJECTIVE, SPECIFIC errors (wrong math, completely missing step, wrong name).
+    │ Do NOT say FAIL for: vague concerns, 'might be wrong', uncertain issues, minor stylistic differences, or steps you cannot confirm from the log (absence of evidence is NOT evidence of absence).
+    │ A false FAIL causes MORE damage than a missed error. When uncertain, ALWAYS say PASS.
+    │ If the action log shows all main steps completed with status=ok, say PASS.
+    │ 
+    │ Reply ONLY with either:
+    │ - 'PASS' if everything looks correct or you are unsure
+    │ - 'FAIL: <specific issue>' ONLY if there is an obvious, objective error
+  🔍 Verification (721 tokens): PASS
+
+  ✓ DONE — 3 iterations, 46039 tokens, 8.3s
+
+======================================================================
+  TASK COMPLETE — total 8.9s
+======================================================================
+
