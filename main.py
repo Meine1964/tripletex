@@ -638,8 +638,7 @@ Step 5: Configure employment details (percentage, annual salary, occupation code
     "remunerationType": 1,
     "workingHoursScheme": 1,
     "percentageOfFullTimeEquivalent": PERCENTAGE,
-    "annualSalary": ANNUAL_SALARY,
-    "occupationCode": {"id": CODE_ID}
+    "annualSalary": ANNUAL_SALARY
   }
   CRITICAL: These enum fields require INTEGER values (not strings like "ORDINARY"!):
     employmentType: 0=NOT_CHOSEN, 1=ORDINARY, 2=MARITIME, 3=FREELANCE
@@ -647,10 +646,13 @@ Step 5: Configure employment details (percentage, annual salary, occupation code
     employmentForm: 0=NOT_CHOSEN, 1=PERMANENT, 2=TEMPORARY
     workingHoursScheme: 0=NOT_CHOSEN, 1=NON_SHIFT, 2=ROUND_THE_CLOCK
   Use 1 for normal employment (ordinary, permanent, monthly pay, non-shift).
-  IMPORTANT: Look up occupation codes first: GET /employee/employment/occupationCode?name=SEARCH_TERM
-  If the API returns codes, use the best match. If not found, try without occupationCode.
+  IMPORTANT: Do NOT include occupationCode unless the task explicitly requires it! It often causes validation errors.
+  If the task does require an occupation code: GET /employee/employment/occupationCode?name=SEARCH_TERM (e.g. ?name=utvikler, ?name=konsulent).
+  NEVER fetch ALL occupation codes — there are 7000+! Always filter with ?name=.
   percentageOfFullTimeEquivalent = 100.0 for full time, 80.0 for 80%, etc.
   IMPORTANT: The field is "percentageOfFullTimeEquivalent" (NOT "percentOfFullTimeEquivalent" or "percent").
+  IMPORTANT: Do NOT include "shiftDurationHours" in the body — the system auto-fills this. Do NOT include "maritimeEmployment" unless employmentType=2.
+  If PUT fails with validation errors: try again with ONLY id, version, employment, date, percentageOfFullTimeEquivalent, and annualSalary (minimal fields). Skip enum fields that cause errors.
   For MARITIME employmentType (2), maritimeEmployment.shipRegister and tradeArea are required — check existing details first with GET.
 
 Step 6: Configure standard work hours (if task mentions "standard hours"/"arbeidstid"/"horas de trabalho"/"heures de travail").
@@ -2084,10 +2086,13 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     req_body[field] = 1  # Safe default
                                     print(f"    │  [fix] employment details {field}: '{val}' → 1 (default)", flush=True)
 
-                # Auto-fix: shiftDurationHours — must always be 35.5 (API only accepts this value)
+                # Auto-fix: shiftDurationHours — always include 35.5 (API requires this exact value)
                 if (args["method"] in ("PUT", "POST")
                         and "/employee/employment/details" in args["path"] and req_body):
-                    if "shiftDurationHours" in req_body and req_body["shiftDurationHours"] != 35.5:
+                    if "shiftDurationHours" not in req_body:
+                        req_body["shiftDurationHours"] = 35.5
+                        print(f"    │  [fix] employment details: added shiftDurationHours=35.5", flush=True)
+                    elif req_body["shiftDurationHours"] != 35.5:
                         print(f"    │  [fix] employment details: shiftDurationHours {req_body['shiftDurationHours']} → 35.5", flush=True)
                         req_body["shiftDurationHours"] = 35.5
 
@@ -2264,50 +2269,171 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             except Exception as e:
                                 print(f"    │  [auto-fix] employment lookup failed: {e}", flush=True)
 
-                # Auto-fix: maritime employment errors on PUT/POST employment/details
-                # When existing employment has MARITIME type, PUT requires maritime fields
-                # Auto-GET existing details and merge maritime fields, then retry
+                # Auto-fix: employment details validation errors — merge with existing and retry
+                # Handles: maritime fields, shiftDurationHours, date, version conflicts
                 if (args["method"] in ("PUT", "POST")
                         and "/employee/employment/details" in args["path"]
-                        and sc >= 400 and result.get("validationMessages")):
-                    maritime_err = any("maritime" in (m.get("field", "") or "").lower()
-                                       for m in result.get("validationMessages", []))
-                    if maritime_err and req_body:
-                        # Extract the details ID from path or body
-                        details_id = req_body.get("id")
-                        if not details_id:
-                            pm = re.search(r"/employee/employment/details/(\d+)", args["path"])
-                            if pm:
-                                details_id = int(pm.group(1))
-                        if details_id:
-                            print(f"    │  [auto-fix] maritime employment error — fetching existing details {details_id}", flush=True)
+                        and sc >= 400 and result.get("validationMessages") and req_body):
+                    details_id = req_body.get("id")
+                    if not details_id:
+                        pm = re.search(r"/employee/employment/details/(\d+)", args["path"])
+                        if pm:
+                            details_id = int(pm.group(1))
+                    if details_id:
+                        print(f"    │  [auto-fix] employment details error — fetching existing {details_id}", flush=True)
+                        try:
+                            existing = call_tripletex(base_url, auth, "GET",
+                                f"/employee/employment/details/{details_id}")
+                            if existing.get("_status_code", 200) < 400:
+                                existing_val = existing.get("value", existing)
+                                # Build base body from ALL existing fields
+                                _keep_fields = ("id", "version", "employment", "date",
+                                    "employmentType", "employmentForm", "remunerationType",
+                                    "workingHoursScheme", "shiftDurationHours", "occupationCode",
+                                    "percentageOfFullTimeEquivalent", "annualSalary",
+                                    "maritimeEmployment", "payrollTaxMunicipalityId")
+                                base_body = {}
+                                for k in _keep_fields:
+                                    if k in existing_val:
+                                        base_body[k] = existing_val[k]
+                                # Convert string enums to integers in base
+                                _em = {
+                                    "employmentType": {"NOT_CHOSEN": 0, "ORDINARY": 1, "MARITIME": 2, "FREELANCE": 3, "CREATIVE": 4, "OFFICER": 5},
+                                    "remunerationType": {"NOT_CHOSEN": 0, "MONTHLY_PAY": 1, "HOURLY_PAY": 2, "COMMISSIONED": 3, "FEE": 4, "PIECEWORK_PAY": 5},
+                                    "employmentForm": {"NOT_CHOSEN": 0, "PERMANENT": 1, "TEMPORARY": 2},
+                                    "workingHoursScheme": {"NOT_CHOSEN": 0, "NON_SHIFT": 1, "ROUND_THE_CLOCK": 2, "SHIFT_365": 3, "OFFSHORE_336": 4, "CONTINUOUS": 5, "OTHER_SHIFT": 6},
+                                }
+                                for fld, mapping in _em.items():
+                                    if isinstance(base_body.get(fld), str):
+                                        base_body[fld] = mapping.get(base_body[fld], 0)
+                                # Overlay agent's desired changes
+                                _agent_fields = ("percentageOfFullTimeEquivalent", "annualSalary",
+                                    "occupationCode", "date")
+                                for k in _agent_fields:
+                                    if k in req_body and req_body[k] is not None:
+                                        base_body[k] = req_body[k]
+                                # Parse validation messages for shiftDurationHours constraint
+                                for msg in result.get("validationMessages", []):
+                                    msg_field = (msg.get("field") or "")
+                                    msg_text = (msg.get("message") or "")
+                                    if "shiftDurationHours" in msg_field:
+                                        m = re.search(r"([\d,]+)\s+til\s+([\d,]+)", msg_text)
+                                        if m:
+                                            base_body["shiftDurationHours"] = float(m.group(1).replace(",", "."))
+                                        else:
+                                            base_body["shiftDurationHours"] = 35.5
+                                # Check for maritime errors — if required but not in existing, keep employmentType as-is
+                                maritime_err = any("maritime" in (m.get("field") or "").lower()
+                                                   for m in result.get("validationMessages", []))
+                                if maritime_err:
+                                    if existing_val.get("maritimeEmployment"):
+                                        base_body["maritimeEmployment"] = existing_val["maritimeEmployment"]
+                                    else:
+                                        # Don't change employmentType — it triggers maritime validation
+                                        existing_et = existing_val.get("employmentType")
+                                        if isinstance(existing_et, str):
+                                            existing_et = _em.get("employmentType", {}).get(existing_et, 0)
+                                        base_body["employmentType"] = existing_et or 0
+                                        # Also keep workingHoursScheme as-is to avoid side effects
+                                        existing_whs = existing_val.get("workingHoursScheme")
+                                        if isinstance(existing_whs, str):
+                                            existing_whs = _em.get("workingHoursScheme", {}).get(existing_whs, 0)
+                                        base_body["workingHoursScheme"] = existing_whs or 0
+                                        print(f"    │  [auto-fix] no maritime data — keeping employmentType={base_body['employmentType']}", flush=True)
+                                # Use PUT since we found existing details
+                                print(f"    │  [auto-fix] retrying PUT with merged base body", flush=True)
+                                retry_result = call_tripletex(base_url, auth, "PUT",
+                                    f"/employee/employment/details/{details_id}",
+                                    params=args.get("params"), body=base_body)
+                                retry_sc = retry_result.get("_status_code", 200)
+                                if retry_sc < 400:
+                                    result = retry_result
+                                    sc = retry_sc
+                                    print(f"    │  [auto-fix] employment details retry succeeded!", flush=True)
+                                else:
+                                    # Last resort: try with ONLY salary + percentage (minimal change)
+                                    print(f"    │  [auto-fix] retry failed ({retry_sc}), trying minimal body", flush=True)
+                                    minimal = {k: base_body[k] for k in ("id", "version", "employment", "date") if k in base_body}
+                                    for k in ("percentageOfFullTimeEquivalent", "annualSalary", "shiftDurationHours"):
+                                        if k in base_body:
+                                            minimal[k] = base_body[k]
+                                    retry2 = call_tripletex(base_url, auth, "PUT",
+                                        f"/employee/employment/details/{details_id}",
+                                        params=args.get("params"), body=minimal)
+                                    if retry2.get("_status_code", 200) < 400:
+                                        result = retry2
+                                        sc = retry2.get("_status_code", 200)
+                                        print(f"    │  [auto-fix] minimal retry succeeded!", flush=True)
+                                    else:
+                                        print(f"    │  [auto-fix] minimal retry also failed: {retry2.get('_status_code')}", flush=True)
+                        except Exception as e:
+                            print(f"    │  [auto-fix] employment details fix error: {e}", flush=True)
+                    elif not details_id and req_body:
+                        # POST case — no existing details ID. Try to find existing details via employment
+                        employment_id = (req_body.get("employment") or {}).get("id")
+                        if employment_id:
+                            print(f"    │  [auto-fix] employment details POST error — checking existing for employment {employment_id}", flush=True)
                             try:
-                                existing = call_tripletex(base_url, auth, "GET",
-                                    f"/employee/employment/details/{details_id}")
-                                if existing.get("_status_code", 200) < 400:
-                                    existing_val = existing.get("value", existing)
-                                    # Copy maritime fields from existing
-                                    maritime = existing_val.get("maritimeEmployment")
-                                    if maritime:
-                                        req_body["maritimeEmployment"] = maritime
-                                        print(f"    │  [auto-fix] merged maritimeEmployment: {maritime}", flush=True)
-                                    # Also ensure date matches existing if not explicitly set
-                                    if existing_val.get("date") and req_body.get("date") != existing_val["date"]:
-                                        req_body["date"] = existing_val["date"]
-                                        print(f"    │  [auto-fix] fixed date → {existing_val['date']}", flush=True)
-                                    # Retry the call with merged body
-                                    print(f"    │  [auto-fix] retrying {args['method']} with maritime fields", flush=True)
-                                    retry_result = call_tripletex(base_url, auth, args["method"],
-                                        args["path"], params=args.get("params"), body=req_body)
+                                existing_list = call_tripletex(base_url, auth, "GET",
+                                    "/employee/employment/details",
+                                    params={"employmentId": str(employment_id)})
+                                vals = existing_list.get("values", [])
+                                if vals:
+                                    # Details already exist! Switch to PUT
+                                    existing_val = vals[0]
+                                    det_id = existing_val.get("id")
+                                    print(f"    │  [auto-fix] found existing details id={det_id}, switching to PUT", flush=True)
+                                    # Build minimal PUT body from existing + agent's desired changes
+                                    _em = {
+                                        "employmentType": {"NOT_CHOSEN": 0, "ORDINARY": 1, "MARITIME": 2, "FREELANCE": 3},
+                                        "remunerationType": {"NOT_CHOSEN": 0, "MONTHLY_PAY": 1, "HOURLY_PAY": 2, "COMMISSIONED": 3, "FEE": 4},
+                                        "employmentForm": {"NOT_CHOSEN": 0, "PERMANENT": 1, "TEMPORARY": 2},
+                                        "workingHoursScheme": {"NOT_CHOSEN": 0, "NON_SHIFT": 1, "ROUND_THE_CLOCK": 2},
+                                    }
+                                    put_body = {"id": det_id, "version": existing_val.get("version", 0),
+                                                "employment": {"id": employment_id},
+                                                "date": existing_val.get("date", req_body.get("date"))}
+                                    for fld in ("employmentType", "employmentForm", "remunerationType",
+                                                "workingHoursScheme", "shiftDurationHours", "maritimeEmployment"):
+                                        if fld in existing_val:
+                                            val = existing_val[fld]
+                                            if isinstance(val, str) and fld in _em:
+                                                val = _em[fld].get(val, 0)
+                                            put_body[fld] = val
+                                    # Override with agent's desired fields
+                                    for fld in ("percentageOfFullTimeEquivalent", "annualSalary"):
+                                        if fld in req_body:
+                                            put_body[fld] = req_body[fld]
+                                    put_body["shiftDurationHours"] = 35.5
+                                    retry_result = call_tripletex(base_url, auth, "PUT",
+                                        f"/employee/employment/details/{det_id}", body=put_body)
                                     retry_sc = retry_result.get("_status_code", 200)
                                     if retry_sc < 400:
                                         result = retry_result
                                         sc = retry_sc
-                                        print(f"    │  [auto-fix] maritime retry succeeded!", flush=True)
+                                        print(f"    │  [auto-fix] POST→PUT switch succeeded!", flush=True)
                                     else:
-                                        print(f"    │  [auto-fix] maritime retry still failed: {retry_sc}", flush=True)
+                                        print(f"    │  [auto-fix] POST→PUT switch failed: {retry_sc}", flush=True)
+                                else:
+                                    # No existing details — retry POST with minimal fields + no employmentType
+                                    print(f"    │  [auto-fix] no existing details, retrying POST minimal", flush=True)
+                                    minimal = {"employment": {"id": employment_id},
+                                               "date": req_body.get("date"),
+                                               "shiftDurationHours": 35.5}
+                                    for fld in ("percentageOfFullTimeEquivalent", "annualSalary"):
+                                        if fld in req_body:
+                                            minimal[fld] = req_body[fld]
+                                    retry_result = call_tripletex(base_url, auth, "POST",
+                                        "/employee/employment/details", body=minimal)
+                                    retry_sc = retry_result.get("_status_code", 200)
+                                    if retry_sc < 400:
+                                        result = retry_result
+                                        sc = retry_sc
+                                        print(f"    │  [auto-fix] minimal POST succeeded!", flush=True)
+                                    else:
+                                        print(f"    │  [auto-fix] minimal POST also failed: {retry_sc}", flush=True)
                             except Exception as e:
-                                print(f"    │  [auto-fix] maritime fix error: {e}", flush=True)
+                                print(f"    │  [auto-fix] POST employment details fix error: {e}", flush=True)
 
                 # Auto-fix: project manager access error — grant access and retry
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/project"
