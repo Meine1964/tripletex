@@ -306,7 +306,11 @@ FORMAT:
 
 KEY ENDPOINTS:
 - GET/POST /employee — firstName, lastName, email
-- PUT /employee/{id} — update (include id + version)
+- PUT /employee/{id} — update (include id + version). Can also set department: {"department": {"id": DEPT_ID}}
+- GET/POST /employee/employment — employment records for an employee. GET ?employeeId=X&fields=*
+- GET/POST/PUT /employee/employment/details — employment details (annualSalary, percentOfFullTimeEquivalent, occupationCode, workingHoursScheme)
+- GET /employee/employment/occupationCode — lookup occupation codes (use ?name=SEARCH_TERM)
+- POST /employee/standardTime — set standard work hours: {employee:{id}, hoursPerDay: 7.5}
 - GET/POST /customer — name, email, invoiceEmail, overdueNoticeEmail, isCustomer:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
 - PUT /customer/{id} — update customer
 - GET/POST /supplier — name, email, invoiceEmail, overdueNoticeEmail, isSupplier:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
@@ -471,24 +475,19 @@ Step 1: Find or create the employee.
   CRITICAL: You MUST PUT /employee/{id} to rename the employee! Sandbox employees have generic names.
   CRITICAL: PUT body MUST include id, version, firstName, lastName, dateOfBirth. Do NOT include email!
 
-Step 2: Ensure employee has an employment record with a division.
+Step 2: Ensure employee has an employment record.
   GET /employee/employment?employeeId=EMPLOYEE_ID&fields=*
-  CASE A — Employment EXISTS with division set → great, proceed to Step 3.
-  CASE B — Employment EXISTS but NO division → division CANNOT be changed after creation.
-    You must DELETE the existing employment first (DELETE /employee/employment/{employmentId}),
-    then create a new one with division (see Case C).
-  CASE C — NO employment exists:
-    a. GET /company/>withLoginAccess to find the company ID.
+  If employment EXISTS → use it as-is (proceed to Step 3).
+  If NO employment: create one:
+    a. Find company ID: GET /company/>withLoginAccess. If 0 results, use the employee's "companyId" field from the GET /employee response.
     b. POST /employee/employment with body:
        {"employee": {"id": EMP_ID}, "startDate": "YYYY-MM-01", "division": {"id": COMPANY_ID}}
-       Use the 1st of the current month as startDate. Do NOT include "department" field.
-       CRITICAL: You MUST include "division"! Without it, salary transactions fail.
-  If POST /employee/employment fails with "Overlappende perioder" (overlapping periods):
-    The employee already has employment! GET /employee/employment?employeeId=EMP_ID to find it.
-    If that employment has division → you're fine, proceed to Step 3.
-    If no division → you may need to update the startDate or just proceed and hope it works.
+       Use 1st of current month as startDate. Do NOT include "department" field.
+  If POST fails with "Overlappende perioder" (overlapping periods):
+    The employee ALREADY HAS employment! GET /employee/employment?employeeId=EMP_ID to find it and use that.
+  IMPORTANT: Do NOT try to DELETE employment records — DELETE is not allowed (405). Always use the existing employment.
 
-Step 2: Look up salary types.
+Step 2b: Look up salary types.
   GET /salary/type — returns available salary types. Key types:
   - number "2000" = "Fastlønn" (Fixed salary / base salary)
   - number "2002" = "Bonus"
@@ -535,6 +534,65 @@ RECOMMENDED approach:
   3. If the task does NOT provide an email: GET existing employees and PUT to update name.
   4. Use the created/updated employee's id for the project manager or other references.
   CRITICAL: You MUST ALWAYS do PUT to update the employee name! Existing employees NEVER have the right name — they ALWAYS have generic names like "Admin NM" or "Testkonto NM". Even if an employee name looks similar to the one in the task, ALWAYS do PUT to ensure correctness. NEVER skip the PUT step!
+
+EMPLOYEE ONBOARDING / OFFER LETTER WORKFLOW (for "integrasjon"/"onboarding"/"offer letter"/"tilbudsbrev"/"carta de oferta"/"lettre d'offre"/"Angebotsschreiben" tasks WITH a PDF attachment):
+The task asks you to set up a new employee from a PDF offer letter — create employee, assign department, configure employment details (percentage, salary), and set standard work hours.
+
+Step 1: Read the PDF carefully. Extract: employee name, email (if given), date of birth (if given), department name, employment percentage, annual salary, start date, occupation/title, standard work hours per week.
+
+Step 2: Create or rename the employee.
+  Try POST /employee with {firstName, lastName, email}. If 422: GET /employee?fields=*, then PUT /employee/{id} with {id, version, firstName, lastName, dateOfBirth}.
+  CRITICAL: If the PDF specifies dateOfBirth, use that exact date! Otherwise use "1990-01-01".
+  CRITICAL: Do NOT include email in PUT. MUST do PUT to rename!
+
+Step 3: Assign the department.
+  GET /department to list existing departments.
+  If the department from the PDF doesn't exist yet: POST /department with {"name": "DEPT_NAME", "departmentNumber": "NEXT_NUMBER"}.
+  Then assign department to employee: PUT /employee/{id} with {"id": X, "version": Y, "department": {"id": DEPT_ID}}.
+  CRITICAL: You MUST do PUT /employee to set department — it's a field on the employee object!
+
+Step 4: Ensure employment record exists.
+  GET /employee/employment?employeeId=EMP_ID&fields=*
+  If employment exists → use its id. Note it for Step 5.
+  If no employment: POST /employee/employment with {"employee": {"id": EMP_ID}, "startDate": "YYYY-MM-01", "division": {"id": COMPANY_ID}}.
+  If POST fails with "Overlappende perioder": GET employment again — it already exists. Use it.
+  IMPORTANT: Do NOT try DELETE on employment — it returns 405! Always use the existing one.
+
+Step 5: Configure employment details (percentage, annual salary, occupation code, work hours scheme).
+  GET /employee/employment/details?employmentId=EMPLOYMENT_ID to see existing details.
+  If details exist: PUT /employee/employment/details/{detailId} with updated fields.
+  If no details: POST /employee/employment/details with body:
+  {
+    "employment": {"id": EMPLOYMENT_ID},
+    "date": "START_DATE",
+    "employmentType": "ORDINARY",
+    "employmentForm": "PERMANENT",
+    "remunerationType": "MONTHLY_PAY",
+    "workingHoursScheme": "NON_SHIFT",
+    "percentOfFullTimeEquivalent": PERCENTAGE,
+    "annualSalary": ANNUAL_SALARY,
+    "occupationCode": {"id": CODE_ID}
+  }
+  IMPORTANT: Look up occupation codes first: GET /employee/employment/occupationCode?name=SEARCH_TERM
+  If the API returns codes, use the best match. If not found, try without occupationCode.
+  percentOfFullTimeEquivalent = 100.0 for full time, 80.0 for 80%, etc.
+
+Step 6: Configure standard work hours (if task mentions "standard hours"/"arbeidstid"/"horas de trabalho"/"heures de travail").
+  POST /employee/standardTime with body:
+  {
+    "employee": {"id": EMP_ID},
+    "hoursPerDay": HOURS_PER_DAY
+  }
+  Standard Norwegian full-time = 7.5 hours/day. If task says 37.5 hrs/week → 7.5/day.
+
+Step 7: Call done().
+
+KEY ENDPOINTS FOR ONBOARDING:
+- PUT /employee/{id} — set department: {"department": {"id": DEPT_ID}} (also include id, version, firstName, lastName, dateOfBirth)
+- GET/POST /employee/employment — employment records
+- GET/POST/PUT /employee/employment/details — employment details (salary, percentage, occupation)
+- GET /employee/employment/occupationCode — lookup occupation codes (use ?name=XXX)
+- POST /employee/standardTime — set standard work hours
 
 PROJECT WORKFLOW:
 - Step 1: Create or find the customer first (POST /customer)
@@ -1141,11 +1199,13 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         result = ensure_bank_account(base_url, auth)
         print(f"  [pre] Bank account setup: {result}", flush=True)
 
-    # Pre-check for salary tasks: scan employees and their employment records
-    salary_keywords = ["lønn", "salary", "paie", "salario", "gehalt", "payroll", "salário", "lön"]
+    # Pre-check for salary/employee tasks: scan employees and their employment records
+    salary_keywords = ["lønn", "salary", "paie", "salario", "gehalt", "payroll", "salário", "lön",
+                       "funcionario", "onboarding", "integrasjon", "tilbudsbrev", "offer letter",
+                       "carta de oferta", "ansatt", "employee", "empregado", "empleado", "mitarbeiter"]
     salary_pre_info = ""
     if any(kw in prompt_for_kw for kw in salary_keywords):
-        print("  [pre] Salary task detected — scanning employees and employment...", flush=True)
+        print("  [pre] Employee/salary task detected — scanning employees and employment...", flush=True)
         try:
             emp_resp = call_tripletex(base_url, auth, "GET", "/employee", params={"fields": "*"})
             employees = emp_resp.get("values", [])
@@ -1153,7 +1213,11 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 salary_pre_info += f"\n\nPRE-SCANNED SANDBOX DATA (use this to save time):\nFound {len(employees)} existing employee(s):"
                 for emp in employees:
                     eid = emp.get("id")
-                    salary_pre_info += f"\n  Employee id={eid}: {emp.get('firstName', '?')} {emp.get('lastName', '?')} (email={emp.get('email', 'none')})"
+                    emp_company_id = emp.get("companyId")
+                    emp_dept = emp.get("department")
+                    salary_pre_info += f"\n  Employee id={eid}: {emp.get('firstName', '?')} {emp.get('lastName', '?')} (email={emp.get('email', 'none')}, companyId={emp_company_id})"
+                    if emp_dept:
+                        salary_pre_info += f"\n    Department: id={emp_dept.get('id')}"
                     # Check employment
                     try:
                         empl_resp = call_tripletex(base_url, auth, "GET", "/employee/employment",
@@ -1164,8 +1228,13 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 div = empl.get("division", {})
                                 div_id = div.get("id") if div else None
                                 salary_pre_info += f"\n    Employment id={empl.get('id')}: startDate={empl.get('startDate')}, division.id={div_id}"
+                                # Check employment details
+                                empl_details = empl.get("employmentDetails", [])
+                                if empl_details:
+                                    for det in empl_details:
+                                        salary_pre_info += f"\n      Detail id={det.get('id')}"
                         else:
-                            salary_pre_info += "\n    NO employment record — you MUST create one with division!"
+                            salary_pre_info += f"\n    NO employment record — you MUST create one (use companyId={emp_company_id} as division.id)"
                     except Exception:
                         salary_pre_info += "\n    [could not check employment]"
                 # Also get company ID for division
@@ -1174,11 +1243,25 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     companies = co_resp.get("values", [])
                     if companies:
                         salary_pre_info += f"\n  Company id={companies[0].get('id')} (use as division.id for employment)"
+                    elif employees:
+                        # Fallback: use employee's companyId
+                        fallback_cid = employees[0].get("companyId")
+                        if fallback_cid:
+                            salary_pre_info += f"\n  Company (from employee): id={fallback_cid} (use as division.id for employment)"
                 except Exception:
                     pass
-                print(f"  [pre] Salary pre-scan complete: {len(employees)} employees found", flush=True)
+                # List existing departments
+                try:
+                    dept_resp = call_tripletex(base_url, auth, "GET", "/department")
+                    depts = dept_resp.get("values", [])
+                    if depts:
+                        salary_pre_info += f"\n  Existing departments: " + ", ".join(f"{d.get('name')} (id={d.get('id')})" for d in depts)
+                except Exception:
+                    pass
+                salary_pre_info += "\n  IMPORTANT: Do NOT try DELETE on employment records — it returns 405! Use existing employment."
+                print(f"  [pre] Pre-scan complete: {len(employees)} employees found", flush=True)
         except Exception as e:
-            print(f"  [pre] Salary pre-scan failed: {e}", flush=True)
+            print(f"  [pre] Pre-scan failed: {e}", flush=True)
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     today_year = today[:4]
@@ -1388,10 +1471,20 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "- Invoice NOT sent unless task explicitly says send/sende/enviar/envoyer?\n"
                                 "  'Fakturer'/'fakturér' means CREATE invoice, NOT send it!\n"
                             )
+                        elif any(kw in _pl for kw in ["integrasjon", "onboarding", "tilbudsbrev", "offer letter", "carta de oferta", "funcionario", "integracao"]):
+                            _task_checks = (
+                                "TASK TYPE: Employee onboarding / offer letter.\n"
+                                "Check these SPECIFIC things:\n"
+                                "- Employee created/renamed with correct name from the PDF?\n"
+                                "- Department assigned correctly (PUT /employee with department.id)?\n"
+                                "- Employment details configured (percentage, annual salary, occupation code)?\n"
+                                "- Standard work hours configured if task mentions it?\n"
+                                "Do NOT require salary transaction for onboarding tasks — they only need employment setup.\n"
+                            )
                         elif any(kw in _pl for kw in ["lønn", "salary", "paie", "salario", "gehalt", "payroll"]):
                             _task_checks = (
                                 "TASK TYPE: Salary/payroll.\n"
-                                "Check: employee name correct, employment with division exists, "
+                                "Check: employee name correct, employment exists, "
                                 "salary transaction has correct base salary and bonus amounts.\n"
                             )
                         elif any(kw in _pl for kw in ["kreditnota", "credit note", "gutschrift", "nota de crédito"]):
@@ -1644,11 +1737,20 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     try:
                         co_resp = call_tripletex(base_url, auth, "GET", "/company/>withLoginAccess")
                         companies = co_resp.get("values", [])
+                        co_id = None
                         if companies:
                             co_id = companies[0].get("id")
-                            if co_id:
-                                req_body["division"] = {"id": co_id}
-                                print(f"    │  [fix] employment: added division {{id:{co_id}}} from company lookup", flush=True)
+                        if not co_id:
+                            # Fallback: find companyId from employee data in previous messages
+                            emp_id_for_div = (req_body.get("employee") or {}).get("id")
+                            if emp_id_for_div:
+                                emp_resp = call_tripletex(base_url, auth, "GET", f"/employee/{emp_id_for_div}", params={"fields": "companyId"})
+                                co_id = (emp_resp.get("value") or {}).get("companyId")
+                                if co_id:
+                                    print(f"    │  [fix] employment: using employee companyId={co_id} as fallback", flush=True)
+                        if co_id:
+                            req_body["division"] = {"id": co_id}
+                            print(f"    │  [fix] employment: added division {{id:{co_id}}}", flush=True)
                     except Exception as e:
                         print(f"    │  [fix] employment division auto-fix failed: {e}", flush=True)
 
