@@ -352,7 +352,7 @@ KEY ENDPOINTS:
 - GET /activity — list available activities (e.g. "Fakturerbart arbeid", "Administrasjon")
 - GET/POST /timesheet/entry — time entries. GET needs dateFrom+dateTo params. POST: {employee:{id}, project:{id}, activity:{id}, date, hours, comment}
 - GET/POST /project/hourlyRates — hourly rates per project. GET needs projectId param.
-- GET/POST/DELETE /ledger/voucher — journal entries with postings
+- GET/POST/DELETE /ledger/voucher — journal entries with postings. GET requires dateFrom+dateTo params. Use fields=* to embed postings in response (avoid fetching individual postings).\n- GET /ledger/posting — individual posting lookup (AVOID — use GET /ledger/voucher?fields=* instead to get all postings embedded)
 - GET /ledger/account — chart of accounts
 - GET/POST /contact — firstName, lastName, email, customer:{id:X}
 - GET /company/{id} — get company by ID. /company/0 may return 204 (empty), try /company/1 or higher
@@ -978,6 +978,13 @@ Step 6: If POST /supplierInvoice fails with a validation error, READ the error m
 IMPORTANT: All POST endpoints above use JSON BODY, not query params! Use the "body" field.
 "Register supplier invoice" / "Eingangsrechnung" / "facture reçue" = incoming invoice, NOT outgoing.
 
+VOUCHER CORRECTION / AUDIT WORKFLOW (for "feil i hovedbok"/"Fehler im Hauptbuch"/"erreurs dans le grand livre"/"errors in ledger" tasks):
+The task asks you to find errors in existing vouchers and create correction postings.
+
+CRITICAL EFFICIENCY: Use GET /ledger/voucher?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD&fields=* to get ALL vouchers WITH their postings embedded in ONE call!
+Do NOT fetch individual vouchers or postings separately — that wastes iterations. The "fields=*" parameter embeds the postings array.
+Once you have all vouchers+postings, analyze them in your reasoning to find errors, then create correction vouchers.
+
 LEDGER VOUCHER / JOURNAL ENTRY WORKFLOW (for "voucher"/"bilag"/"Buchung"/"écriture comptable"/"asiento" tasks):
 The task asks you to create a journal entry / voucher with specific postings.
 
@@ -997,6 +1004,8 @@ Step 1: If the task involves accounting dimensions (e.g. "Produktlinje", "Avdeli
 
 Step 2: Look up ledger accounts if needed.
   GET /ledger/account — find account IDs for the account numbers mentioned in the task.
+  EFFICIENCY TIP: Use GET /ledger/account?fields=id,number,name to get a compact list. You can filter by number like ?number=6500 or get ALL accounts in one call with a wide range.
+  If you need multiple specific accounts, prefer one broad GET call and filter the results rather than making separate calls for each account number.
   GET /ledger/vatType — if VAT is involved.
 
 Step 3: Create the voucher.
@@ -1637,6 +1646,12 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 return diag
 
             if name == "tripletex_api":
+                # Auto-fix: strip trailing dots/punctuation from path (GPT sometimes adds them)
+                if args.get("path") and isinstance(args["path"], str):
+                    cleaned = args["path"].rstrip(".")
+                    if cleaned != args["path"]:
+                        print(f"    │  [fix] stripped trailing dot from path: {args['path']} → {cleaned}", flush=True)
+                        args["path"] = cleaned
                 # Auto-fix: GPT sometimes puts query params in a 'query' field instead of 'params'
                 if args.get("query") and isinstance(args["query"], str) and args["query"].startswith("?"):
                     from urllib.parse import parse_qs

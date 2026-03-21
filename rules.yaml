@@ -1244,3 +1244,145 @@ rules:
     message: >
       POST /timesheet/entry requires activity.id. First GET /activity
       to find valid activity IDs for the project.
+
+  # ════════════════════════════════════════════════════════════════
+  #  NEW RULES — discovered from 61-log analysis (2026-03-21)
+  # ════════════════════════════════════════════════════════════════
+
+  # ── Employment Details PUT: enum fields must be integers ──────
+  - id: employment-details-put-employmentType-type
+    description: "employmentType must be an integer on PUT too"
+    when:
+      method: PUT
+      path_pattern: "^/employee/employment/details/\\d+$"
+    field_type:
+      employmentType: number
+    message: >
+      employmentType must be an INTEGER: 0=NOT_CHOSEN, 1=ORDINARY,
+      2=MARITIME, 3=FREELANCE, 4=CREATIVE, 5=OFFICER.
+
+  - id: employment-details-put-remunerationType-type
+    description: "remunerationType must be an integer on PUT too"
+    when:
+      method: PUT
+      path_pattern: "^/employee/employment/details/\\d+$"
+    field_type:
+      remunerationType: number
+    message: >
+      remunerationType must be an INTEGER: 0=NOT_CHOSEN, 1=MONTHLY_PAY,
+      2=HOURLY_PAY, 3=COMMISSIONED, 4=FEE, 5=PIECEWORK_PAY.
+
+  - id: employment-details-put-employmentForm-type
+    description: "employmentForm must be an integer on PUT too"
+    when:
+      method: PUT
+      path_pattern: "^/employee/employment/details/\\d+$"
+    field_type:
+      employmentForm: number
+    message: >
+      employmentForm must be an INTEGER: 0=NOT_CHOSEN, 1=PERMANENT,
+      2=TEMPORARY.
+
+  - id: employment-details-put-workingHoursScheme-type
+    description: "workingHoursScheme must be an integer on PUT too"
+    when:
+      method: PUT
+      path_pattern: "^/employee/employment/details/\\d+$"
+    field_type:
+      workingHoursScheme: number
+    message: >
+      workingHoursScheme must be an INTEGER: 0=NOT_CHOSEN, 1=NON_SHIFT,
+      2=ROUND_THE_CLOCK, 3=SHIFT_365, 4=OFFSHORE_336, 5=CONTINUOUS,
+      6=OTHER_SHIFT.
+
+  # ── Employment Details PUT: reject wrong percentage field names ─
+  - id: employment-details-put-no-percent
+    description: "Reject wrong field 'percent' on PUT employment details"
+    when:
+      method: PUT
+      path_pattern: "^/employee/employment/details/\\d+$"
+    reject_fields:
+      - percent
+      - percentEmployed
+    message: >
+      Wrong field name! Use 'percentageOfFullTimeEquivalent' (NOT
+      'percent' or 'percentEmployed').
+
+  # ── GET /supplierInvoice requires date params ─────────────────
+  - id: get-supplierinvoice-dates
+    description: "GET /supplierInvoice requires invoiceDateFrom and invoiceDateTo"
+    when:
+      method: GET
+      path: /supplierInvoice
+    require_params:
+      - invoiceDateFrom
+      - invoiceDateTo
+    message: >
+      GET /supplierInvoice requires params invoiceDateFrom and invoiceDateTo
+      (YYYY-MM-DD format). Use wide range like 2000-01-01 to 2030-12-31.
+
+  # ── POST /activity requires name ──────────────────────────────
+  - id: activity-name-required
+    description: "POST /activity requires name"
+    when:
+      method: POST
+      path: /activity
+    require_fields:
+      - name
+    message: >
+      POST /activity requires 'name' field (e.g. "Fakturerbart arbeid",
+      "Administrasjon").
+
+  # ── StandardTime fromDate format ──────────────────────────────
+  - id: standardtime-fromdate-format
+    description: "fromDate must be YYYY-MM-DD"
+    when:
+      method: POST
+      path: /employee/standardTime
+    field_format:
+      fromDate: "^\\d{4}-\\d{2}-\\d{2}$"
+    message: >
+      fromDate on POST /employee/standardTime must be in YYYY-MM-DD format.
+
+  # ── Voucher requires dateFrom and dateTo on GET ───────────────
+  # Already covered by get-voucher-dates, but ensure wide range hint
+  # (rule get-voucher-dates above handles this)
+
+  # ── Block PUT /supplierInvoice/{id} (not valid) ──────────────
+  - id: supplier-invoice-put-id-blocked
+    description: "PUT /supplierInvoice/{id} is not valid"
+    when:
+      method: PUT
+      path_pattern: "^/supplierInvoice/\\d+$"
+    require_fields:
+      - _use_post_not_put
+    message: >
+      PUT /supplierInvoice/{id} is not valid. Use POST /supplierInvoice
+      to create new supplier invoices.
+
+  # ── Salary transaction: payslips must be array ────────────────
+  # Already covered by salary-payslips-type above
+
+  # ── POST /project: reject 'manager' (wrong field name) ───────
+  - id: project-no-manager
+    description: "POST /project uses projectManager, not manager"
+    when:
+      method: POST
+      path: /project
+    reject_fields:
+      - manager
+    message: >
+      Wrong field name! Use 'projectManager' (not 'manager') for the
+      project manager. Example: {"projectManager": {"id": EMPLOYEE_ID}}.
+
+  # ── POST /project: reject plain string for projectManager ────
+  - id: project-manager-type
+    description: "projectManager must be an object with id"
+    when:
+      method: POST
+      path: /project
+    field_type:
+      projectManager: object
+    message: >
+      'projectManager' must be an object like {"id": EMPLOYEE_ID},
+      not a string or number.
