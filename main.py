@@ -321,6 +321,30 @@ PAYMENT WORKFLOW (for "payment" / "betaling" / "Zahlung" tasks):
    CRITICAL: All action endpoints (/:payment, /:send, /:createCreditNote, /:createReminder) use query PARAMS, not JSON body!
    Example: tripletex_api(method="PUT", path="/invoice/123/:payment", params={"paymentDate":"{today}","paymentTypeId":1,"paidAmount":1000,"paidAmountCurrency":1000})
 
+PAYMENT WITH EXCHANGE RATE DIFFERENCE (agio/disagio):
+When a foreign-currency invoice is paid at a different exchange rate than when invoiced:
+1. Find the existing invoice (GET /invoice) and note the invoice's total amount in NOK.
+2. Calculate:
+   - Original invoice amount in NOK (already in the invoice's "amount" field)
+   - Payment amount at NEW exchange rate = EUR_amount × new_rate
+   - Exchange diff = payment_at_new_rate − original_invoice_amount
+   If positive (new rate higher than old) → agio (gain) → account 8060 "Valutagevinst"
+   If negative (new rate lower) → disagio (loss) → account 8160 "Valutatap"
+3. Register the FULL payment for the invoice: PUT /invoice/{id}/:payment with paidAmount = invoice's "amount"
+   This closes the invoice fully. The exchange rate difference is handled separately.
+4. Create a journal voucher for the exchange rate difference:
+   POST /ledger/voucher with body containing TWO postings that sum to zero:
+   - Debit posting (positive amount) on one account
+   - Credit posting (negative amount) on the other account
+   For agio (gain): debit bank account (1920), credit 8060
+   For disagio (loss): debit 8160, credit bank account (1920)
+   CRITICAL: Postings MUST always sum to zero! Never create a voucher with just one posting.
+5. Look up the account IDs first: GET /ledger/account with params={"number":"8060"} (or 8160 for loss)
+   Standard Norwegian exchange rate accounts:
+   - 8060 = "Valutagevinst" (foreign exchange gain / agio)
+   - 8160 = "Valutatap" (foreign exchange loss / disagio)
+   Do NOT use account 8080 (that's for financial instruments, not exchange rates).
+
 REVERSE PAYMENT WORKFLOW (for "reverse" / "revert" / "devuelto" / "tilbakefør" / "stornieren" / "annuler" payment tasks):
 1. Search for the invoice: GET /invoice with params={"invoiceDateFrom":"2000-01-01","invoiceDateTo":"2030-12-31"}
    Note the invoice's "amount" or "amountCurrency" field — this is the TOTAL INCLUDING VAT.
@@ -705,6 +729,7 @@ Step 3: Create the voucher.
   - Each posting MUST have a "row" field: 1, 2, 3... (starting from 1, NOT 0! Row 0 is reserved for system-generated entries)
   - Each posting MUST have a "date" field matching the voucher date
   - Debit = positive amount, Credit = negative amount. Postings MUST sum to zero.
+  - You MUST have at least 2 postings (one debit, one credit). A single posting is ALWAYS wrong!
   - Use account {"id": X} (look up IDs first with GET /ledger/account)
   - If the task specifies a dimension, add to each posting: "accountingDimensionValue": {"id": VALUE_ID}
 
@@ -1082,6 +1107,18 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "- Invoice amounts NOT zero — if amount=0 or amountCurrency=0 in the response, the postings were WRONG\n"
                                 "- Invoice number, date, due date match the PDF/task?\n"
                             )
+                        elif any(kw in _pl for kw in ["agio", "disagio", "exchange rate", "tipo de cambio", "valutakurs", "taux de change", "wechselkurs", "valutagevinst", "valutatap"]):
+                            _task_checks = (
+                                "TASK TYPE: Payment with exchange rate difference (agio/disagio).\n"
+                                "Check these SPECIFIC things:\n"
+                                "- Payment registered for full invoice amount (closes the invoice)?\n"
+                                "- Exchange rate difference calculated correctly: EUR_amount × new_rate − invoice_NOK_amount?\n"
+                                "- Agio (gain) booked to account 8060, or disagio (loss) to 8160?\n"
+                                "  Account 8080 is WRONG — that's for financial instruments, not exchange rates!\n"
+                                "- Journal voucher has at LEAST 2 postings that sum to zero?\n"
+                                "  A voucher with only 1 posting is ALWAYS wrong (amounts will be zero)!\n"
+                                "- If any created voucher shows amount=0 or amountCurrency=0, the postings failed!\n"
+                            )
 
                         verify_prompt = (
                             f"TASK: {prompt}\n\n"
@@ -1297,6 +1334,22 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     args["method"], args["path"],
                     body=req_body, params=args.get("params"),
                 )
+                # Extra: voucher postings must have ≥2 rows and sum to ~zero
+                if args["method"] == "POST" and args["path"].rstrip("/") == "/ledger/voucher" and req_body:
+                    postings = req_body.get("postings", [])
+                    if len(postings) < 2:
+                        violations.append(
+                            "[voucher-min-postings] Voucher must have at least 2 postings "
+                            "(one debit, one credit). A single posting will result in amount=0. "
+                            "Add both a debit (positive) AND a credit (negative) posting that sum to zero."
+                        )
+                    elif postings:
+                        total = sum(p.get("amount", 0) for p in postings)
+                        if abs(total) > 0.01:
+                            violations.append(
+                                f"[voucher-balance] Voucher postings must sum to zero but sum to {total}. "
+                                f"Debit = positive, Credit = negative. Adjust amounts so they balance."
+                            )
                 if violations:
                     v_text = "\n".join(violations)
                     print(f"    │  [reject] {len(violations)} rule violation(s):", flush=True)
