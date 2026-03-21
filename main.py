@@ -74,7 +74,7 @@ def push_log_to_github(log_text: str, filename: str):
         return
     try:
         content_b64 = base64.b64encode(log_text.encode("utf-8")).decode("ascii")
-        url = f"https://api.github.com/repos/Meine1964/tripletex/contents/test_suite/logs/auto/{filename}"
+        url = f"https://api.github.com/repos/Meine1964/tripletex/contents/test_suite/logs/Day_3/{filename}"
         headers = {
             "Authorization": f"token {token}",
             "Accept": "application/vnd.github.v3+json",
@@ -85,7 +85,7 @@ def push_log_to_github(log_text: str, filename: str):
         }
         resp = requests.put(url, headers=headers, json=data, timeout=10)
         if resp.status_code in (200, 201):
-            print(f"  [log] Pushed to GitHub: test_suite/logs/auto/{filename}", flush=True)
+            print(f"  [log] Pushed to GitHub: test_suite/logs/Day_3/{filename}", flush=True)
         else:
             print(f"  [log] GitHub push failed: {resp.status_code} {resp.text[:200]}", flush=True)
     except Exception as e:
