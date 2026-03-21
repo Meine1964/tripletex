@@ -836,6 +836,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     pending_employee_rename = None  # {"firstName": ..., "lastName": ...} if rename needed
     employee_renamed = False  # True once PUT /employee has been done
 
+    # Track fixed-price project: auto-fix milestone product pricing (VAT-inclusive → ex-VAT)
+    tracked_fixedprice = None  # float: the fixedprice from POST /project with isFixedPrice
+
     # Pre-check: set bank account for invoice-related tasks (also credit note and payment tasks need invoices)
     prompt_lower = prompt.lower()
     # Strip email addresses before keyword check to avoid false positives (e.g. "faktura@company.no")
@@ -1068,6 +1071,25 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         except Exception as e:
                             print(f"    │  [fix] perDiem auto-fix failed: {e}", flush=True)
 
+                # Auto-fix: milestone product pricing — price should be ex-VAT
+                # If we tracked a fixedprice and now POST /product with price = fixedprice * fraction,
+                # the LLM likely forgot to divide by 1.25. Auto-correct.
+                if (tracked_fixedprice and args["method"] == "POST"
+                        and args["path"].rstrip("/") == "/product" and req_body):
+                    price = req_body.get("priceExcludingVatCurrency")
+                    if price and tracked_fixedprice > 0:
+                        ratio = round(price / tracked_fixedprice, 4)
+                        # Common milestone fractions: 25%, 33%, 50%, 75%, 100%
+                        known_fractions = [0.25, 1/3, 0.5, 0.75, 1.0]
+                        for frac in known_fractions:
+                            if abs(ratio - frac) < 0.001:
+                                # Price matches a clean fraction → LLM used milestone amount as ex-VAT
+                                corrected = round(price / 1.25, 2)
+                                req_body["priceExcludingVatCurrency"] = corrected
+                                print(f"    │  [fix] milestone product price {price} → {corrected} "
+                                      f"(÷1.25 so total incl. 25% VAT = {price})", flush=True)
+                                break
+
                 # ── Validation rules check (after auto-fixes, before API call) ──
                 violations = validate_tool_call(
                     args["method"], args["path"],
@@ -1114,6 +1136,13 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                                  "not a supplier invoice entity. Check: amountGross (not amount), row >= 1, "
                                                  "date on each posting, supplier on credit posting.")
                         print(f"    │  [hint] injected retry guidance for /supplierInvoice", flush=True)
+
+                # Track fixed-price project creation
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/project"
+                        and sc < 400 and req_body
+                        and req_body.get("isFixedPrice") and req_body.get("fixedprice")):
+                    tracked_fixedprice = float(req_body["fixedprice"])
+                    print(f"    │  [track] fixedprice project: {tracked_fixedprice}", flush=True)
 
                 # Track employee rename state
                 # PUT /employee succeeded → mark rename done
