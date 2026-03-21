@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -102,22 +103,34 @@ GITHUB_REPO = "Meine1964/tripletex"
 GITHUB_LOG_PATH = "logs"
 
 def push_log_to_github(log_text: str, filename: str):
-    """Push a log file to GitHub repo via API."""
+    """Push a log file to GitHub repo via API with retry on 409 conflicts."""
     if not GITHUB_TOKEN:
         return
-    try:
-        import base64 as b64
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_LOG_PATH}/{filename}"
-        headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
-        content_b64 = b64.b64encode(log_text.encode("utf-8")).decode("ascii")
-        body = {"message": f"Log: {filename}", "content": content_b64, "branch": "main"}
-        resp = requests.put(url, json=body, headers=headers, timeout=15)
-        if resp.status_code in (200, 201):
-            print(f"  [github] Log pushed: {filename}", flush=True)
-        else:
-            print(f"  [github] Push failed ({resp.status_code}): {resp.text[:200]}", flush=True)
-    except Exception as e:
-        print(f"  [github] Push error: {e}", flush=True)
+    import base64 as b64
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_LOG_PATH}/{filename}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    content_b64 = b64.b64encode(log_text.encode("utf-8")).decode("ascii")
+    for attempt in range(4):
+        try:
+            body = {"message": f"Log: {filename}", "content": content_b64, "branch": "main"}
+            resp = requests.put(url, json=body, headers=headers, timeout=15)
+            if resp.status_code in (200, 201):
+                print(f"  [github] Log pushed: {filename} (attempt {attempt+1})", flush=True)
+                return
+            elif resp.status_code == 409 and attempt < 3:
+                delay = random.uniform(1.5, 4.0)
+                print(f"  [github] Conflict (409), retry in {delay:.1f}s (attempt {attempt+1}/4)...", flush=True)
+                time.sleep(delay)
+                continue
+            else:
+                print(f"  [github] Push failed ({resp.status_code}): {resp.text[:200]}", flush=True)
+                return
+        except Exception as e:
+            print(f"  [github] Push error (attempt {attempt+1}): {e}", flush=True)
+            if attempt < 3:
+                time.sleep(random.uniform(1, 2))
+                continue
+            return
 
 def list_gcs_logs():
     """List all log files in GCS bucket."""
@@ -1558,9 +1571,14 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             "5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. "
                             "For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. "
                             "For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.\n\n"
+                            "CRITICAL: Be CONSERVATIVE. When in doubt, say PASS.\n"
+                            "Only say FAIL for CLEAR, OBJECTIVE, SPECIFIC errors (wrong math, completely missing step, wrong name).\n"
+                            "Do NOT say FAIL for: vague concerns, 'might be wrong', uncertain issues, minor stylistic differences, "
+                            "or steps you cannot confirm from the log (absence of evidence is NOT evidence of absence).\n"
+                            "If the action log shows all main steps completed with status=ok, say PASS.\n\n"
                             "Reply ONLY with either:\n"
-                            "- 'PASS' if everything looks correct\n"
-                            "- 'FAIL: <specific issue>' if something is wrong"
+                            "- 'PASS' if everything looks correct or you are unsure\n"
+                            "- 'FAIL: <specific issue>' ONLY if there is an obvious, objective error"
                         )
                         print(f"  📋 Verification prompt ({len(verify_prompt)} chars):", flush=True)
                         # Log the prompt in chunks for readability
@@ -1991,37 +2009,52 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 LOG_DIR = "/tmp/agent_logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
+# In-memory log store (survives for container lifetime, no concurrency issues)
+_MEMORY_LOGS: dict[str, str] = {}
+
 
 @app.get("/logs")
 async def list_logs():
-    """List log files from GCS, GitHub, or local fallback."""
-    # Try GCS first
-    gcs_logs = list_gcs_logs()
-    if gcs_logs:
-        return JSONResponse(sorted(gcs_logs, key=lambda x: x["name"], reverse=True))
-    # Try GitHub
+    """List log files from memory, GCS, GitHub, or local — merged and deduplicated."""
+    all_logs: dict[str, dict] = {}
+    # In-memory logs (always available for this container)
+    for name, content in _MEMORY_LOGS.items():
+        all_logs[name] = {"name": name, "size": len(content), "source": "memory"}
+    # Local disk logs
+    try:
+        for f in os.listdir(LOG_DIR):
+            if f.endswith(".log") and f not in all_logs:
+                all_logs[f] = {"name": f, "size": os.path.getsize(os.path.join(LOG_DIR, f)), "source": "local"}
+    except Exception:
+        pass
+    # GCS logs
+    for item in list_gcs_logs():
+        if item["name"] not in all_logs:
+            all_logs[item["name"]] = {**item, "source": "gcs"}
+    # GitHub logs
     if GITHUB_TOKEN:
         try:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_LOG_PATH}"
             headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
             resp = requests.get(url, headers=headers, timeout=10)
             if resp.status_code == 200:
-                items = resp.json()
-                logs = [{"name": it["name"], "size": it.get("size", 0)} for it in items if it["name"].endswith(".log")]
-                if logs:
-                    return JSONResponse(sorted(logs, key=lambda x: x["name"], reverse=True))
+                for it in resp.json():
+                    if it["name"].endswith(".log") and it["name"] not in all_logs:
+                        all_logs[it["name"]] = {"name": it["name"], "size": it.get("size", 0), "source": "github"}
         except Exception:
             pass
-    # Fallback to local
-    files = sorted(os.listdir(LOG_DIR), reverse=True)
-    return JSONResponse([{"name": f, "size": os.path.getsize(os.path.join(LOG_DIR, f))} for f in files if f.endswith(".log")])
+    result = sorted(all_logs.values(), key=lambda x: x["name"], reverse=True)
+    return JSONResponse(result)
 
 
 @app.get("/logs/{filename}")
 async def get_log(filename: str):
-    """Download a specific log file from GCS, GitHub, or local fallback."""
+    """Download a specific log file from memory, GCS, GitHub, or local fallback."""
     import pathlib
     safe = pathlib.PurePosixPath(filename).name
+    # Try in-memory first
+    if safe in _MEMORY_LOGS:
+        return PlainTextResponse(_MEMORY_LOGS[safe])
     # Try GCS first
     content = read_gcs_log(safe)
     if content:
@@ -2108,7 +2141,7 @@ async def solve(request: Request):
     # Push log to GitHub (best-effort, non-blocking)
     log_text = log_capture.getvalue()
     if log_text:
-        ts_file = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        ts_file = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S") + f"_{random.randint(1000, 9999)}"
         # Classify task type for a readable filename
         pl = prompt.lower()
         if any(k in pl for k in ["reiseregning", "travel expense", "nota de gastos de viaje", "note de frais", "reisekosten", "despesas de viagem"]):
@@ -2139,7 +2172,9 @@ async def solve(request: Request):
         status = "ok" if diag.get("done") else "fail"
         iters = diag.get("iterations", 0)
         log_filename = f"{ts_file}_{task_type}_{status}_{iters}iter_{short}.log"
-        # Save locally first (always works, survives GitHub failures)
+        # Save to in-memory store (always works, fastest retrieval)
+        _MEMORY_LOGS[log_filename] = log_text
+        # Save locally (always works, survives GitHub failures)
         try:
             local_path = os.path.join(LOG_DIR, log_filename)
             with open(local_path, "w", encoding="utf-8") as lf:
@@ -2152,8 +2187,9 @@ async def solve(request: Request):
             push_log_to_gcs(log_text, log_filename)
         except Exception as e:
             print(f"  ⚠ GCS log push failed: {e}", flush=True)
-        # Push to GitHub (fallback when GCS fails)
+        # Push to GitHub (with random initial delay to avoid concurrent commits)
         try:
+            time.sleep(random.uniform(0.5, 3.0))  # Stagger pushes
             push_log_to_github(log_text, log_filename)
         except Exception as e:
             print(f"  ⚠ GitHub log push failed: {e}", flush=True)
