@@ -1220,3 +1220,27 @@ rules:
     message: >
       invoiceDueDate must be a date string in YYYY-MM-DD format.
       Make sure the date is valid (e.g. Feb has max 28/29 days).
+
+  # ── Activity ──────────────────────────────────────────────────
+  - id: activity-required
+    description: "POST /activity requires activityType"
+    when:
+      method: POST
+      path: /activity
+    require_fields:
+      - activityType
+    message: >
+      POST /activity requires activityType. Valid values:
+      PROJECT_GENERAL_ACTIVITY, PROJECT_SPECIFIC_ACTIVITY, GENERAL_ACTIVITY.
+
+  # ── Timesheet entry: require activity ─────────────────────────
+  - id: timesheet-entry-activity
+    description: "POST /timesheet/entry requires activity.id"
+    when:
+      method: POST
+      path: /timesheet/entry
+    require_fields:
+      - activity.id
+    message: >
+      POST /timesheet/entry requires activity.id. First GET /activity
+      to find valid activity IDs for the project.

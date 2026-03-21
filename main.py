@@ -1919,6 +1919,19 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     req_body[field] = 1  # Safe default
                                     print(f"    │  [fix] employment details {field}: '{val}' → 1 (default)", flush=True)
 
+                # Auto-fix: shiftDurationHours — must always be 35.5 (API only accepts this value)
+                if (args["method"] in ("PUT", "POST")
+                        and "/employee/employment/details" in args["path"] and req_body):
+                    if "shiftDurationHours" in req_body and req_body["shiftDurationHours"] != 35.5:
+                        print(f"    │  [fix] employment details: shiftDurationHours {req_body['shiftDurationHours']} → 35.5", flush=True)
+                        req_body["shiftDurationHours"] = 35.5
+
+                # Auto-fix: POST /activity — ensure activityType
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/activity" and req_body):
+                    if "activityType" not in req_body:
+                        req_body["activityType"] = "PROJECT_GENERAL_ACTIVITY"
+                        print(f"    │  [fix] activity: added activityType=PROJECT_GENERAL_ACTIVITY", flush=True)
+
                 # Auto-fix: POST /employee/standardTime — ensure fromDate
                 if (args["method"] == "POST" and "/employee/standardTime" in args["path"] and req_body):
                     if "fromDate" not in req_body:
@@ -2074,6 +2087,51 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     print(f"    │  [auto-fix] existing employment id={existing.get('id')}, division={has_div}", flush=True)
                             except Exception as e:
                                 print(f"    │  [auto-fix] employment lookup failed: {e}", flush=True)
+
+                # Auto-fix: maritime employment errors on PUT/POST employment/details
+                # When existing employment has MARITIME type, PUT requires maritime fields
+                # Auto-GET existing details and merge maritime fields, then retry
+                if (args["method"] in ("PUT", "POST")
+                        and "/employee/employment/details" in args["path"]
+                        and sc >= 400 and result.get("validationMessages")):
+                    maritime_err = any("maritime" in (m.get("field", "") or "").lower()
+                                       for m in result.get("validationMessages", []))
+                    if maritime_err and req_body:
+                        # Extract the details ID from path or body
+                        details_id = req_body.get("id")
+                        if not details_id:
+                            pm = re.search(r"/employee/employment/details/(\d+)", args["path"])
+                            if pm:
+                                details_id = int(pm.group(1))
+                        if details_id:
+                            print(f"    │  [auto-fix] maritime employment error — fetching existing details {details_id}", flush=True)
+                            try:
+                                existing = call_tripletex(base_url, auth, "GET",
+                                    f"/employee/employment/details/{details_id}")
+                                if existing.get("_status_code", 200) < 400:
+                                    existing_val = existing.get("value", existing)
+                                    # Copy maritime fields from existing
+                                    maritime = existing_val.get("maritimeEmployment")
+                                    if maritime:
+                                        req_body["maritimeEmployment"] = maritime
+                                        print(f"    │  [auto-fix] merged maritimeEmployment: {maritime}", flush=True)
+                                    # Also ensure date matches existing if not explicitly set
+                                    if existing_val.get("date") and req_body.get("date") != existing_val["date"]:
+                                        req_body["date"] = existing_val["date"]
+                                        print(f"    │  [auto-fix] fixed date → {existing_val['date']}", flush=True)
+                                    # Retry the call with merged body
+                                    print(f"    │  [auto-fix] retrying {args['method']} with maritime fields", flush=True)
+                                    retry_result = call_tripletex(base_url, auth, args["method"],
+                                        args["path"], params=args.get("params"), body=req_body)
+                                    retry_sc = retry_result.get("_status_code", 200)
+                                    if retry_sc < 400:
+                                        result = retry_result
+                                        sc = retry_sc
+                                        print(f"    │  [auto-fix] maritime retry succeeded!", flush=True)
+                                    else:
+                                        print(f"    │  [auto-fix] maritime retry still failed: {retry_sc}", flush=True)
+                            except Exception as e:
+                                print(f"    │  [auto-fix] maritime fix error: {e}", flush=True)
 
                 # Auto-fix: project manager access error — grant access and retry
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/project"
