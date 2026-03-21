@@ -1263,6 +1263,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     # Track employee rename state: when POST /employee fails, we need to PUT to rename
     pending_employee_rename = None  # {"firstName": ..., "lastName": ...} if rename needed
     employee_renamed = False  # True once PUT /employee has been done
+    renamed_employee_ids = set()  # IDs already used for rename — don't overwrite
 
     # Track fixed-price project: auto-fix milestone product pricing (VAT-inclusive → ex-VAT)
     tracked_fixedprice = None  # float: the fixedprice from POST /project with isFixedPrice
@@ -1296,7 +1297,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     eid = emp.get("id")
                     emp_company_id = emp.get("companyId")
                     emp_dept = emp.get("department")
+                    emp_dob = emp.get("dateOfBirth")
                     salary_pre_info += f"\n  Employee id={eid}: {emp.get('firstName', '?')} {emp.get('lastName', '?')} (email={emp.get('email', 'none')}, companyId={emp_company_id})"
+                    if not emp_dob:
+                        salary_pre_info += f"\n    WARNING: No dateOfBirth — MUST do PUT /employee/{eid} with dateOfBirth before creating employment!"
                     if emp_dept:
                         salary_pre_info += f"\n    Department: id={emp_dept.get('id')}"
                     # Check employment
@@ -1344,6 +1348,55 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         except Exception as e:
             print(f"  [pre] Pre-scan failed: {e}", flush=True)
 
+    # Pre-check for ledger correction tasks: fetch all vouchers with postings to save iterations
+    ledger_correction_keywords = ["feil i hovedbok", "errors in the general ledger", "errors in the ledger",
+                                  "fehler im hauptbuch", "erreurs dans le grand livre", "errores en el libro mayor",
+                                  "erros no livro razão", "korrigeringsbilag", "correction voucher",
+                                  "wrong account", "duplicate voucher", "incorrect amount", "missing vat"]
+    ledger_pre_info = ""
+    if any(kw in prompt_lower for kw in ledger_correction_keywords):
+        print("  [pre] Ledger correction task detected — fetching all vouchers with postings...", flush=True)
+        try:
+            # Fetch all vouchers for Jan-Feb (common period for correction tasks)
+            v_resp = call_tripletex(base_url, auth, "GET", "/ledger/voucher",
+                                    params={"dateFrom": "2026-01-01", "dateTo": "2026-02-28", "fields": "*", "count": 100})
+            vouchers = v_resp.get("values", [])
+            if vouchers:
+                ledger_pre_info += f"\n\nPRE-SCANNED VOUCHER DATA ({len(vouchers)} vouchers for Jan-Feb 2026):"
+                # Also fetch all postings in one call
+                p_resp = call_tripletex(base_url, auth, "GET", "/ledger/posting",
+                                        params={"dateFrom": "2026-01-01", "dateTo": "2026-02-28", "fields": "*", "count": 1000})
+                all_postings = p_resp.get("values", [])
+                # Group postings by voucher ID
+                postings_by_voucher = {}
+                for p in all_postings:
+                    vid = (p.get("voucher") or {}).get("id")
+                    if vid:
+                        postings_by_voucher.setdefault(vid, []).append(p)
+                for v in vouchers:
+                    vid = v.get("id")
+                    v_postings = postings_by_voucher.get(vid, [])
+                    ledger_pre_info += f"\n  Voucher #{v.get('number')} (id={vid}, date={v.get('date')}, desc=\"{v.get('description', '')}\")"
+                    for p in v_postings:
+                        acct = p.get("account", {})
+                        ledger_pre_info += (
+                            f"\n    Posting: account={acct.get('number', '?')} ({acct.get('name', '?')}), "
+                            f"amount={p.get('amount', 0)}, amountGross={p.get('amountGross', 0)}, "
+                            f"description=\"{p.get('description', '')}\""
+                        )
+                # Also fetch account IDs for common accounts
+                acct_resp = call_tripletex(base_url, auth, "GET", "/ledger/account",
+                                           params={"fields": "id,number,name"})
+                accounts = acct_resp.get("values", [])
+                if accounts:
+                    ledger_pre_info += f"\n\n  ACCOUNT LOOKUP (use these IDs):"
+                    for a in accounts:
+                        ledger_pre_info += f"\n    Account {a.get('number')}: id={a.get('id')} ({a.get('name', '')})"
+                ledger_pre_info += "\n\n  STRATEGY: Analyze the postings above, identify the 4 errors, then create correction vouchers. Do NOT re-fetch vouchers/postings!"
+                print(f"  [pre] Pre-scan complete: {len(vouchers)} vouchers, {len(all_postings)} postings, {len(accounts)} accounts", flush=True)
+        except Exception as e:
+            print(f"  [pre] Ledger correction pre-scan failed: {e}", flush=True)
+
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     today_year = today[:4]
     system_prompt = SYSTEM_PROMPT_TEMPLATE.replace("{today}", today).replace("{today_year}", today_year)
@@ -1351,7 +1404,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         {"role": "system", "content": system_prompt},
     ]
 
-    user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates.{salary_pre_info}"
+    user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates.{salary_pre_info}{ledger_pre_info}"
     vision_parts = []  # For image vision inputs
     if files:
         user_content += f"\n\nAttached files ({len(files)}):"
@@ -1883,6 +1936,34 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     except Exception as e:
                         print(f"    │  [fix] employment division auto-fix failed: {e}", flush=True)
 
+                # Auto-fix: ensure employee has dateOfBirth before creating employment
+                # Tripletex rejects employment creation if the employee has no dateOfBirth
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
+                        and req_body):
+                    emp_id_for_dob = (req_body.get("employee") or {}).get("id")
+                    if emp_id_for_dob:
+                        try:
+                            emp_data = call_tripletex(base_url, auth, "GET", f"/employee/{emp_id_for_dob}",
+                                                      params={"fields": "id,version,firstName,lastName,dateOfBirth"})
+                            emp_val = emp_data.get("value", {})
+                            if emp_val and not emp_val.get("dateOfBirth"):
+                                put_body = {
+                                    "id": emp_val["id"],
+                                    "version": emp_val.get("version", 0),
+                                    "firstName": emp_val.get("firstName", "Employee"),
+                                    "lastName": emp_val.get("lastName", "Unknown"),
+                                    "dateOfBirth": "1990-01-01",
+                                }
+                                put_resp = call_tripletex(base_url, auth, "PUT", f"/employee/{emp_id_for_dob}", body=put_body)
+                                put_sc = put_resp.get("_status_code", 200)
+                                if put_sc < 400:
+                                    employee_renamed = True
+                                    print(f"    │  [fix] employee {emp_id_for_dob}: set dateOfBirth=1990-01-01 (required for employment)", flush=True)
+                                else:
+                                    print(f"    │  [fix] employee {emp_id_for_dob}: dateOfBirth PUT failed ({put_sc})", flush=True)
+                        except Exception as e:
+                            print(f"    │  [fix] employee dateOfBirth check failed: {e}", flush=True)
+
                 # Auto-fix: employment startDate — use 1st of month to avoid overlap with existing
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
                         and req_body):
@@ -2241,6 +2322,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             sc = retry_sc
                             print(f"    │  [auto-fix] employment created without division OK", flush=True)
                         else:
+                            # Show the retry result to GPT so it sees the actual failure reason
+                            result = retry_result
+                            sc = retry_sc
                             print(f"    │  [auto-fix] retry without division also failed: {retry_sc}", flush=True)
 
                 # Track fixed-price project creation + diagnostic GET-back
@@ -2288,9 +2372,15 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             get_emp_result = call_tripletex(base_url, auth, "GET", "/employee", params={"fields": "*"})
                             emp_list = get_emp_result.get("values", [])
                             if emp_list:
+                                # Filter out already-renamed employees (for multi-employee tasks)
+                                available = [e for e in emp_list if e["id"] not in renamed_employee_ids]
+                                if not available:
+                                    # All employees already renamed — reuse one but warn
+                                    available = emp_list
+                                    print(f"    │  [auto-fix] WARNING: all {len(emp_list)} employees already renamed, reusing", flush=True)
                                 # Pick last non-admin employee (or last employee)
-                                target_emp = emp_list[-1]
-                                for emp in emp_list:
+                                target_emp = available[-1]
+                                for emp in available:
                                     if emp.get("firstName", "").lower() != "admin":
                                         target_emp = emp
                                 emp_id = target_emp["id"]
@@ -2312,6 +2402,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     result["_status_code"] = 201
                                     employee_renamed = True
                                     pending_employee_rename = None
+                                    renamed_employee_ids.add(emp_id)
                                     print(f"    │  [auto-fix] employee {emp_id} renamed to {fn} {ln} — returning as created", flush=True)
                                 else:
                                     pending_employee_rename = {"firstName": fn, "lastName": ln}
