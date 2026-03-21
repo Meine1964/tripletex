@@ -994,6 +994,13 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
     for iteration in range(25):
         iter_start = time.time()
+        # Safety: stop 20s before Cloud Run's 300s timeout so we can still push logs
+        elapsed_total = time.time() - agent_start
+        if elapsed_total > 260:
+            print(f"\n  ⏰ TIME LIMIT — {elapsed_total:.0f}s elapsed, stopping to save log", flush=True)
+            diag["errors"].append(f"Time limit reached at {elapsed_total:.0f}s")
+            break
+
         print(f"\n{'─'*50}", flush=True)
         print(f"  ITERATION {iteration+1}/25", flush=True)
         print(f"{'─'*50}", flush=True)
@@ -1561,17 +1568,6 @@ async def solve(request: Request):
     token = creds["session_token"]
     auth = ("0", token)
 
-    print(f"\n{'='*70}", flush=True)
-    print(f"  NEW TASK RECEIVED", flush=True)
-    print(f"{'='*70}", flush=True)
-    print(f"  Prompt: {prompt[:500]}{'…' if len(prompt)>500 else ''}", flush=True)
-    print(f"  Files:  {len(files)}", flush=True)
-    print(f"  URL:    {base_url}", flush=True)
-    if files:
-        for f in files:
-            print(f"    - {f.get('filename', '?')} ({f.get('mime_type', '?')})", flush=True)
-    print(f"{'─'*70}", flush=True)
-
     # Auto-capture task to logs (extract with test_suite/fetch_cases.py)
     try:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
@@ -1590,17 +1586,32 @@ async def solve(request: Request):
     log_capture = LogCapture()
     try:
         with log_capture:
-            diag = run_agent(prompt, files, base_url, auth) or {}
-    except Exception as e:
-        import traceback
-        print(f"  ✗ AGENT ERROR: {e}", flush=True)
-        traceback.print_exc()
-        diag["errors"] = [str(e)]
+            print(f"\n{'='*70}", flush=True)
+            print(f"  NEW TASK RECEIVED", flush=True)
+            print(f"{'='*70}", flush=True)
+            print(f"  Prompt: {prompt[:500]}{'…' if len(prompt)>500 else ''}", flush=True)
+            print(f"  Files:  {len(files)}", flush=True)
+            print(f"  URL:    {base_url}", flush=True)
+            if files:
+                for f in files:
+                    print(f"    - {f.get('filename', '?')} ({f.get('mime_type', '?')})", flush=True)
+            print(f"{'─'*70}", flush=True)
 
-    elapsed = time.time()-t0
-    print(f"\n{'='*70}", flush=True)
-    print(f"  TASK COMPLETE — total {elapsed:.1f}s", flush=True)
-    print(f"{'='*70}\n", flush=True)
+            try:
+                diag = run_agent(prompt, files, base_url, auth) or {}
+            except Exception as e:
+                import traceback
+                print(f"  ✗ AGENT ERROR: {e}", flush=True)
+                traceback.print_exc()
+                diag["errors"] = [str(e)]
+
+            elapsed = time.time()-t0
+            print(f"\n{'='*70}", flush=True)
+            print(f"  TASK COMPLETE — total {elapsed:.1f}s", flush=True)
+            print(f"{'='*70}\n", flush=True)
+    except Exception as outer_err:
+        print(f"  ✗ OUTER ERROR: {outer_err}", flush=True)
+        diag["errors"] = diag.get("errors", []) + [str(outer_err)]
 
     # Push log to GitHub (best-effort, non-blocking)
     log_text = log_capture.getvalue()
