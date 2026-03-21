@@ -947,6 +947,68 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
             if name == "done":
                 elapsed = time.time() - agent_start
+                remaining = 280 - elapsed  # 300s timeout, 20s safety margin
+                # ── Post-execution verification (single LLM call) ──
+                if remaining > 15 and not diag.get("_verified"):
+                    diag["_verified"] = True
+                    print(f"\n  ⏳ Verifying task completion ({remaining:.0f}s remaining)...", flush=True)
+                    try:
+                        # Build compact action log from messages
+                        action_log = []
+                        for m in messages:
+                            if isinstance(m, dict) and m.get("role") == "tool":
+                                try:
+                                    c = json.loads(m["content"])
+                                    # Summarize: status, id, key values
+                                    sc = c.get("_status_code", "ok")
+                                    val = c.get("value", {})
+                                    summary_parts = [f"status={sc}"]
+                                    for k in ("id", "name", "fixedprice", "isFixedPrice",
+                                              "priceExcludingVatCurrency", "priceIncludingVatCurrency",
+                                              "amount", "amountCurrency", "invoiceNumber",
+                                              "totalAmount", "count"):
+                                        if isinstance(val, dict) and k in val:
+                                            summary_parts.append(f"{k}={val[k]}")
+                                    action_log.append(" ".join(summary_parts))
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                            elif not isinstance(m, dict) and hasattr(m, "tool_calls") and m.tool_calls:
+                                for tc_v in m.tool_calls:
+                                    action_log.append(f"CALL: {tc_v.function.name}({tc_v.function.arguments[:300]})")
+                        verify_prompt = (
+                            f"TASK: {prompt}\n\n"
+                            f"ACTION LOG (chronological):\n" + "\n".join(action_log[-40:]) + "\n\n"
+                            "You are an accounting verification agent. Check:\n"
+                            "1. MATH: All amounts, percentages, VAT calculations correct? "
+                            "(e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)\n"
+                            "2. COMPLETENESS: All steps in the task done? (create, invoice, send, pay, etc.)\n"
+                            "3. DATA: Names, org numbers, dates match the task?\n\n"
+                            "Reply ONLY with either:\n"
+                            "- 'PASS' if everything looks correct\n"
+                            "- 'FAIL: <specific issue>' if something is wrong"
+                        )
+                        verify_resp = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[{"role": "user", "content": verify_prompt}],
+                            max_tokens=200,
+                            temperature=0,
+                        )
+                        verdict = verify_resp.choices[0].message.content.strip()
+                        print(f"  🔍 Verification: {verdict}", flush=True)
+                        if verdict.upper().startswith("FAIL"):
+                            # Reject done() — feed back to agent
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": json.dumps({
+                                    "error": f"VERIFICATION FAILED — do NOT call done() yet. Fix this issue first: {verdict}",
+                                }),
+                            })
+                            print(f"  ↩ Returning to agent to fix issue", flush=True)
+                            continue  # continue the tool_calls loop, then next iteration
+                    except Exception as e:
+                        print(f"  ⚠ Verification error (proceeding): {e}", flush=True)
+
                 print(f"\n  ✓ DONE — {iteration+1} iterations, {total_tokens} tokens, {elapsed:.1f}s", flush=True)
                 messages.append({
                     "role": "tool",
