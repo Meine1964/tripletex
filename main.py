@@ -1061,6 +1061,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 return diag
 
         msg = response.choices[0].message
+        finish_reason = response.choices[0].finish_reason
         messages.append(msg)
 
         # Token usage
@@ -1083,7 +1084,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         if not msg.tool_calls:
             # GPT stopped without calling done() — nudge it to continue or call done()
             if iteration < 24:
-                print(f"  ⚠ NUDGE — no tool calls, re-prompting GPT (reason: {msg.finish_reason})", flush=True)
+                print(f"  ⚠ NUDGE — no tool calls, re-prompting GPT (reason: {finish_reason})", flush=True)
                 messages.append({
                     "role": "user",
                     "content": "You must either continue with the next API call or call done() if the task is complete. Do NOT output text without a tool call. What is the next step?"
