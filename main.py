@@ -83,15 +83,17 @@ def push_log_to_github(log_text: str, filename: str):
             "message": f"Auto-log: {filename}",
             "content": content_b64,
         }
-        for attempt in range(5):
+        max_retries = 8
+        for attempt in range(max_retries):
             resp = requests.put(url, headers=headers, json=data, timeout=15)
             if resp.status_code in (200, 201):
                 print(f"  [log] Pushed to GitHub: test_suite/logs/Day_3/{filename}", flush=True)
                 return
             elif resp.status_code == 409:
-                # Conflict — branch moved, retry after delay
-                wait = 2 * (attempt + 1)
-                print(f"  [log] GitHub 409 conflict, retry {attempt+1}/5 in {wait}s...", flush=True)
+                # Conflict — another push moved the branch, wait with jitter and retry
+                import random
+                wait = 1 + attempt * 2 + random.uniform(0, 2)
+                print(f"  [log] GitHub 409 conflict, retry {attempt+1}/{max_retries} in {wait:.1f}s...", flush=True)
                 time.sleep(wait)
                 continue
             elif resp.status_code == 422 and "sha" in resp.text.lower():
@@ -101,7 +103,7 @@ def push_log_to_github(log_text: str, filename: str):
             else:
                 print(f"  [log] GitHub push failed: {resp.status_code} {resp.text[:200]}", flush=True)
                 return
-        print(f"  [log] GitHub push failed after 5 retries: {filename}", flush=True)
+        print(f"  [log] GitHub push failed after {max_retries} retries: {filename}", flush=True)
     except Exception as e:
         print(f"  [log] GitHub push error: {e}", flush=True)
 
