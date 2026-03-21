@@ -21,6 +21,16 @@ load_dotenv()
 app = FastAPI()
 client = OpenAI()
 
+# ── Version identifier ────────────────────────────────────────────
+import subprocess as _sp
+try:
+    _GIT_SHA = _sp.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                stderr=_sp.DEVNULL, cwd=os.path.dirname(__file__) or "."
+                                ).decode().strip()
+except Exception:
+    _GIT_SHA = "unknown"
+AGENT_VERSION = _GIT_SHA
+
 
 # ── Log capture + GitHub push ────────────────────────────────────
 class LogCapture:
@@ -1588,6 +1598,7 @@ async def solve(request: Request):
         with log_capture:
             print(f"\n{'='*70}", flush=True)
             print(f"  NEW TASK RECEIVED", flush=True)
+            print(f"  Version: {AGENT_VERSION}", flush=True)
             print(f"{'='*70}", flush=True)
             print(f"  Prompt: {prompt[:500]}{'…' if len(prompt)>500 else ''}", flush=True)
             print(f"  Files:  {len(files)}", flush=True)
