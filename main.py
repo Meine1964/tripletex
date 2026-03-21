@@ -321,9 +321,9 @@ KEY ENDPOINTS:
 - GET/POST /employee — firstName, lastName, email
 - PUT /employee/{id} — update (include id + version). Can also set department: {"department": {"id": DEPT_ID}}
 - GET/POST /employee/employment — employment records for an employee. GET ?employeeId=X&fields=*
-- GET/POST/PUT /employee/employment/details — employment details (annualSalary, percentOfFullTimeEquivalent, occupationCode, workingHoursScheme)
+- GET/POST/PUT /employee/employment/details — employment details (annualSalary, percentOfFullTimeEquivalent, occupationCode, workingHoursScheme). CRITICAL: enum fields (employmentType, remunerationType, employmentForm, workingHoursScheme) require INTEGER values: 1=ORDINARY/PERMANENT/MONTHLY_PAY/NON_SHIFT
 - GET /employee/employment/occupationCode — lookup occupation codes (use ?name=SEARCH_TERM)
-- POST /employee/standardTime — set standard work hours: {employee:{id}, hoursPerDay: 7.5}
+- POST /employee/standardTime — set standard work hours: {employee:{id}, hoursPerDay: 7.5, fromDate: "YYYY-MM-DD"} (fromDate is REQUIRED!)
 - GET/POST /customer — name, email, invoiceEmail, overdueNoticeEmail, isCustomer:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
 - PUT /customer/{id} — update customer
 - GET/POST /supplier — name, email, invoiceEmail, overdueNoticeEmail, isSupplier:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
@@ -578,14 +578,20 @@ Step 5: Configure employment details (percentage, annual salary, occupation code
   {
     "employment": {"id": EMPLOYMENT_ID},
     "date": "START_DATE",
-    "employmentType": "ORDINARY",
-    "employmentForm": "PERMANENT",
-    "remunerationType": "MONTHLY_PAY",
-    "workingHoursScheme": "NON_SHIFT",
+    "employmentType": 1,
+    "employmentForm": 1,
+    "remunerationType": 1,
+    "workingHoursScheme": 1,
     "percentOfFullTimeEquivalent": PERCENTAGE,
     "annualSalary": ANNUAL_SALARY,
     "occupationCode": {"id": CODE_ID}
   }
+  CRITICAL: These enum fields require INTEGER values (not strings like "ORDINARY"!):
+    employmentType: 0=NOT_CHOSEN, 1=ORDINARY, 2=MARITIME, 3=FREELANCE
+    remunerationType: 0=NOT_CHOSEN, 1=MONTHLY_PAY, 2=HOURLY_PAY, 3=COMMISSIONED, 4=FEE
+    employmentForm: 0=NOT_CHOSEN, 1=PERMANENT, 2=TEMPORARY
+    workingHoursScheme: 0=NOT_CHOSEN, 1=NON_SHIFT, 2=ROUND_THE_CLOCK
+  Use 1 for normal employment (ordinary, permanent, monthly pay, non-shift).
   IMPORTANT: Look up occupation codes first: GET /employee/employment/occupationCode?name=SEARCH_TERM
   If the API returns codes, use the best match. If not found, try without occupationCode.
   percentOfFullTimeEquivalent = 100.0 for full time, 80.0 for 80%, etc.
@@ -594,8 +600,10 @@ Step 6: Configure standard work hours (if task mentions "standard hours"/"arbeid
   POST /employee/standardTime with body:
   {
     "employee": {"id": EMP_ID},
-    "hoursPerDay": HOURS_PER_DAY
+    "hoursPerDay": HOURS_PER_DAY,
+    "fromDate": "{today}"
   }
+  CRITICAL: fromDate is REQUIRED! Use today's date or the employment start date.
   Standard Norwegian full-time = 7.5 hours/day. If task says 37.5 hrs/week → 7.5/day.
 
 Step 7: Call done().
@@ -1841,22 +1849,67 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             p["amountCurrency"] = p["amount"]
                             print(f"    │  [fix] voucher posting[{idx}]: added amountCurrency", flush=True)
 
-                # Auto-fix: POST /employee/employment/details — ensure employment ref
+                # Auto-fix: POST /employee/employment/details — ensure employment ref + defaults
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment/details"
                         and req_body):
-                    # If missing employmentType defaults
+                    # If missing employmentType defaults (use INTEGER values — API rejects strings)
                     if "employmentType" not in req_body:
-                        req_body["employmentType"] = "ORDINARY"
-                        print(f"    │  [fix] employment details: added employmentType=ORDINARY", flush=True)
+                        req_body["employmentType"] = 1  # ORDINARY
+                        print(f"    │  [fix] employment details: added employmentType=1 (ORDINARY)", flush=True)
                     if "employmentForm" not in req_body:
-                        req_body["employmentForm"] = "PERMANENT"
-                        print(f"    │  [fix] employment details: added employmentForm=PERMANENT", flush=True)
+                        req_body["employmentForm"] = 1  # PERMANENT
+                        print(f"    │  [fix] employment details: added employmentForm=1 (PERMANENT)", flush=True)
                     if "remunerationType" not in req_body:
-                        req_body["remunerationType"] = "MONTHLY_PAY"
-                        print(f"    │  [fix] employment details: added remunerationType=MONTHLY_PAY", flush=True)
+                        req_body["remunerationType"] = 1  # MONTHLY_PAY
+                        print(f"    │  [fix] employment details: added remunerationType=1 (MONTHLY_PAY)", flush=True)
                     if "workingHoursScheme" not in req_body:
-                        req_body["workingHoursScheme"] = "NON_SHIFT"
-                        print(f"    │  [fix] employment details: added workingHoursScheme=NON_SHIFT", flush=True)
+                        req_body["workingHoursScheme"] = 1  # NON_SHIFT
+                        print(f"    │  [fix] employment details: added workingHoursScheme=1 (NON_SHIFT)", flush=True)
+
+                # Auto-fix: employment details enum fields — convert strings to integers
+                # Tripletex API requires integer values for these enums, but GET returns strings
+                if (args["method"] in ("PUT", "POST")
+                        and "/employee/employment/details" in args["path"] and req_body):
+                    _enum_maps = {
+                        "employmentType": {"NOT_CHOSEN": 0, "ORDINARY": 1, "MARITIME": 2, "FREELANCE": 3, "CREATIVE": 4, "OFFICER": 5},
+                        "remunerationType": {"NOT_CHOSEN": 0, "MONTHLY_PAY": 1, "HOURLY_PAY": 2, "COMMISSIONED": 3, "FEE": 4, "PIECEWORK_PAY": 5},
+                        "employmentForm": {"NOT_CHOSEN": 0, "PERMANENT": 1, "TEMPORARY": 2},
+                        "workingHoursScheme": {"NOT_CHOSEN": 0, "NON_SHIFT": 1, "ROUND_THE_CLOCK": 2, "SHIFT_365": 3, "OFFSHORE_336": 4, "CONTINUOUS": 5, "OTHER_SHIFT": 6},
+                    }
+                    for field, mapping in _enum_maps.items():
+                        val = req_body.get(field)
+                        if isinstance(val, str):
+                            upper_val = val.upper().replace(" ", "_")
+                            if upper_val in mapping:
+                                req_body[field] = mapping[upper_val]
+                                print(f"    │  [fix] employment details {field}: '{val}' → {mapping[upper_val]}", flush=True)
+                            else:
+                                # Fuzzy match: ORDINARY_EMPLOYMENT → ORDINARY, ORDINARY_PERMANENT → PERMANENT
+                                matched = False
+                                for key, int_val in mapping.items():
+                                    if key in upper_val or upper_val in key:
+                                        req_body[field] = int_val
+                                        print(f"    │  [fix] employment details {field}: '{val}' → {int_val} (fuzzy '{key}')", flush=True)
+                                        matched = True
+                                        break
+                                if not matched:
+                                    req_body[field] = 1  # Safe default
+                                    print(f"    │  [fix] employment details {field}: '{val}' → 1 (default)", flush=True)
+
+                # Auto-fix: POST /employee/standardTime — ensure fromDate
+                if (args["method"] == "POST" and "/employee/standardTime" in args["path"] and req_body):
+                    if "fromDate" not in req_body:
+                        req_body["fromDate"] = today
+                        print(f"    │  [fix] standardTime: added fromDate={today}", flush=True)
+
+                # Auto-fix: POST /order — ensure orderDate and deliveryDate
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/order" and req_body):
+                    if "orderDate" not in req_body:
+                        req_body["orderDate"] = today
+                        print(f"    │  [fix] order: added orderDate={today}", flush=True)
+                    if "deliveryDate" not in req_body:
+                        req_body["deliveryDate"] = req_body.get("orderDate", today)
+                        print(f"    │  [fix] order: added deliveryDate", flush=True)
 
                 # Auto-fix: milestone product pricing — price should be ex-VAT
                 # If we tracked a fixedprice and now POST /product with price = fixedprice * fraction,
