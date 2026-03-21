@@ -1,0 +1,222 @@
+
+======================================================================
+  NEW TASK RECEIVED
+  Version: unknown
+======================================================================
+  Prompt: Crea una factura para el cliente Sierra SL (org. nº 861379760) con tres líneas de producto: Mantenimiento (2109) a 27500 NOK con 25 % IVA, Horas de consultoría (1175) a 3900 NOK con 15 % IVA (alimentos), y Informe de análisis (9974) a 3400 NOK con 0 % IVA (exento).
+  Files:  0
+  URL:    https://tx-proxy-jwanbnu3pq-lz.a.run.app/v2
+──────────────────────────────────────────────────────────────────────
+  [pre] Invoice/credit/payment task detected — ensuring bank account...
+    ┌─ API GET /invoice/settings
+    └─ 200 OK (3.4s) id=781733
+    ┌─ API GET /ledger/account
+    │  params: {"isBankAccount": "true", "count": 10}
+    └─ 200 OK (3.4s) [2 items]
+  [bank] found account 1920 id=377691058 v=0
+    ┌─ API PUT /ledger/account/377691058
+    │  body:   {"id": 377691058, "version": 0, "number": 1920, "name": "Bankinnskudd", "bankAccountNumber": "15030100112"}
+    └─ 200 OK (3.5s) id=377691058 name=Bankinnskudd
+  [bank] bank account set OK
+  [pre] Bank account setup: OK
+
+──────────────────────────────────────────────────
+  ITERATION 1/25
+──────────────────────────────────────────────────
+  Tokens: prompt=16314 completion=161 total_session=16475
+  GPT says: To create an invoice for the customer Sierra SL with three product lines at different VAT rates, we need to follow these steps:
+
+1. **Create the Customer**: Ensure Sierra SL exists as a customer. If not, create it.
+2. **Look up VAT Types**: Retrieve the correct VAT types for the products.
+3. **Create Products**: Create the products with the specified VAT rates.
+4. **Create the Order**: Create an order for Sierra SL.
+5. **Add Order Lines**: Add each product as an order line.
+6. **Create the Invoi
+  Messages: 3 (61,719 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/customer"})
+    ┌─ API GET /customer
+    └─ 200 OK (3.1s) [1 items]
+    │  response: {"fullResultSize": 1, "from": 0, "count": 1, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 108331265, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108331265", "name": "Sierra SL", "organizationNumber": "861379760", "globalLocationNumber": 0, "supplierNumber": 0, "customerNumber": 10001, "isSupplier": false, "isCustomer": true, "isInactive": false, "accountManager": null, "department": null, "email": "", "invoiceEmail": "", "overdueNoticeEmail": "", "phoneNumber": "", "phoneNumberMobile": "", "description": "", "language": "NO", "displayName": "Sierra SL (10001)", "isPrivateIndividual": false, "singleCustomerInvoice": false, "invoiceSendMethod": "EMAIL", "emailAttachmentType": "ATTACHMENT", "postalAddress": {"id": 405512971, "url": "kkpqfuj-amager.tripletex.dev/v2/address/405512971"}, "physicalAddress": {"id": 405512970, "url": "kkpqfuj-amager.tripletex.dev/v2/address/405512970"}, "deliveryAddress": null, "category1": null, "category2": null, "category3": null, "invoicesDueIn": 14, "invoicesDueInType": "DAYS", "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "bankAccountPresentation": [], "ledgerAccount": {"id": 377691002, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/account/377691002"}, "isFactoring": false, "invoiceSendSMSNotification": false, "invoiceSMSNotificationNumber": "", "isAutomaticSoftReminderEnabled": false, "isAutomaticReminderEnabled": false, "isAutomaticNoticeOfDebtCollectionEnabled": f…
+  Iteration 1 took 5.5s
+
+──────────────────────────────────────────────────
+  ITERATION 2/25
+──────────────────────────────────────────────────
+  Tokens: prompt=16961 completion=107 total_session=33543
+  GPT says: The customer Sierra SL already exists in the system. Now let's proceed to look up the VAT types needed for the products. We need:
+
+- 25% VAT for the "Mantenimiento" product.
+- 15% VAT for the "Horas de consultoría" product.
+- 0% VAT (exempt) for the "Informe de análisis" product.
+
+I'll start by retrieving the available VAT types.
+  Messages: 5 (63,599 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/ledger/vatType"})
+    ┌─ API GET /ledger/vatType
+    └─ 200 OK (4.0s) [56 items]
+    │  response: {"fullResultSize": 56, "from": 0, "count": 56, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 1, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/1", "name": "Fradrag inngående avgift, høy sats", "number": "1", "displayName": "1: (25%) Fradrag inngående avgift, høy sats", "percentage": 25, "deductionPercentage": 100.0, "parentType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}}, {"id": 2, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/2", "name": "Direktepostert fradrag inngående avgift, høy sats (mva-kode utgikk 01.01.2017)", "number": "UT-2", "displayName": "UT-2: (100%) Direktepostert fradrag inngående avgift, høy sats (mva-kode utgikk 01.01.2017)", "percentage": 100.0, "deductionPercentage": 100.0, "parentType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}}, {"id": 3, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3", "name": "Utgående avgift, høy sats", "number": "3", "displayName": "3: (25%) Utgående avgift, høy sats", "percentage": 25, "deductionPercentage": 100.0, "parentType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}}, {"id": 4, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/4", "name": "Direktepostert utgående avgift, høy sats", "number": "4", "displayName": "4: (100%) Direktepostert utgående avgift, høy sats", "percentage": 100.0, "deductionPercentage": 100.0, "parentType": {"id…
+  Iteration 2 took 5.8s
+
+──────────────────────────────────────────────────
+  ITERATION 3/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20078 completion=187 total_session=53808
+  GPT says: I have retrieved the VAT types. Here are the corresponding IDs for our needed VAT rates:
+
+- **25% VAT (Utgående avgift, høy sats)**: ID = 3
+- **15% VAT (Utgående avgift, middels sats)**: ID = 31
+- **0% VAT (Ingen utgående avgift, innenfor mva-loven)**: ID = 5
+
+Now, let's proceed to create the products with these VAT types. We'll make:
+
+1. "Mantenimiento" with a price excluding VAT of 27500 NOK (25% VAT).
+2. "Horas de consultoría" with a price excluding VAT of 3900 NOK (15% VAT).
+3. "Informe de a
+  Messages: 7 (72,170 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/product"})
+    ┌─ API GET /product
+    └─ 200 OK (3.3s) [3 items]
+    │  response: {"fullResultSize": 3, "from": 0, "count": 3, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 84413738, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84413738", "name": "Mantenimiento", "number": "2109", "displayNumber": "2109", "description": "", "orderLineDescription": "", "costExcludingVatCurrency": 0, "costPrice": 0, "priceExcludingVatCurrency": 27500.0, "priceIncludingVatCurrency": 34375.0, "isInactive": false, "productUnit": null, "incomingStock": 0, "outgoingStock": 0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "department": null, "account": null, "supplier": null, "resaleProduct": null, "isDeletable": false, "hasSupplierProductConnected": false, "image": null, "displayName": "2109 Mantenimiento", "mainSupplierProduct": null, "isRoundPriceIncVat": false, "priceInTargetCurrency": 0, "purchasePriceCurrency": 0}, {"id": 84413739, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84413739", "name": "Horas de consultoría", "number": "1175", "displayNumber": "1175", "description": "", "orderLineDescription": "", "costExcludingVatCurrency": 0, "costPrice": 0, "priceExcludingVatCurrency": 3900.0, "priceIncludingVatCurrency": 4485.0, "isInactive": false, "productUnit": null, "incomingStock": 0, "outgoingStock": 0, "vatType": {"id": 31, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/31"}, "currency": {"id"…
+  Iteration 3 took 5.6s
+
+──────────────────────────────────────────────────
+  ITERATION 4/25
+──────────────────────────────────────────────────
+  Tokens: prompt=21185 completion=152 total_session=75145
+  GPT says: All the necessary products already exist:
+
+1. **Mantenimiento** (2109) - Price: 27500 NOK, VAT Type: 25%
+2. **Horas de consultoría** (1175) - Price: 3900 NOK, VAT Type: 15%
+3. **Informe de análisis** (9974) - Price: 3400 NOK, VAT Type: 0%
+
+Now, we will create an order for Sierra SL and add these products as order lines.
+  Messages: 9 (75,244 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order","body":{"customer":{"id":108331265},"orderDate":"2026-03-21","deliveryDate":"2026-03-21"}})
+    ┌─ API POST /order
+    │  body:   {"customer": {"id": 108331265}, "orderDate": "2026-03-21", "deliveryDate": "2026-03-21"}
+    └─ 201 OK (4.3s) id=402041269
+    │  response: {"value": {"id": 402041269, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402041269", "customer": {"id": 108331265, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108331265"}, "contact": null, "attn": null, "displayName": "1 Ordre", "receiverEmail": "", "overdueNoticeEmail": "", "number": "1", "reference": "", "department": null, "orderDate": "2026-03-21", "project": null, "invoiceComment": "", "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "invoicesDueIn": 14, "invoicesDueInType": "DAYS", "isShowOpenPostsOnInvoices": false, "isClosed": false, "deliveryDate": "2026-03-21", "deliveryAddress": null, "deliveryComment": "", "isPrioritizeAmountsIncludingVat": false, "orderLineSorting": "PRODUCT", "orderGroups": [], "orderLines": [], "isSubscription": false, "subscriptionDuration": 0, "subscriptionDurationType": "MONTHS", "subscriptionPeriodsOnInvoice": 0, "subscriptionPeriodsOnInvoiceType": "MONTHS", "subscriptionInvoicingTimeInAdvanceOrArrears": "ADVANCE", "subscriptionInvoicingTime": 0, "subscriptionInvoicingTimeType": "MONTHS", "isSubscriptionAutoInvoicing": false, "preliminaryInvoice": {"id": 2147644221, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147644221"}, "attachment": [], "sendMethodDescription": "Faktura må sendes manuelt.", "invoiceOnAccountVatHigh": false, "totalInvoicedOnAccountAmountAbsoluteCurrency": 0.0, "invoiceSendSMSNotification": false, "invoiceSMSNotificationNumber": "", "markUpOrderLines": 0, "discountPercent…
+  Iteration 4 took 6.7s
+
+──────────────────────────────────────────────────
+  ITERATION 5/25
+──────────────────────────────────────────────────
+  Tokens: prompt=21844 completion=139 total_session=97128
+  GPT says: The order for Sierra SL has been created. Now, let's add the product lines to this order:
+
+1. **Mantenimiento** (2109) - 27500 NOK with 25% VAT
+2. **Horas de consultoría** (1175) - 3900 NOK with 15% VAT
+3. **Informe de análisis** (9974) - 3400 NOK with 0% VAT
+
+Let's start adding these order lines.
+  Messages: 11 (77,171 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402041269},"product":{"id":84413738},"count":1}})
+    ┌─ API POST /order/orderline
+    │  body:   {"order": {"id": 402041269}, "product": {"id": 84413738}, "count": 1}
+    └─ 201 OK (4.0s) id=1607578622
+    │  response: {"value": {"id": 1607578622, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607578622", "product": {"id": 84413738, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84413738"}, "inventory": null, "description": "", "displayName": "2109 Mantenimiento", "count": 1.0, "unitCostCurrency": 0.0, "unitPriceExcludingVatCurrency": 27500.0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "markup": 0.0, "discount": 0.0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "amountExcludingVatCurrency": 27500.0, "amountIncludingVatCurrency": 34375.0, "vendor": null, "order": {"id": 402041269, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402041269"}, "unitPriceIncludingVatCurrency": 34375.0, "isSubscription": false, "subscriptionPeriodStart": null, "subscriptionPeriodEnd": null, "orderGroup": null, "sortIndex": 0, "isPicked": false, "pickedDate": null, "orderedQuantity": 0, "isCharged": false}}
+  Iteration 5 took 7.1s
+
+──────────────────────────────────────────────────
+  ITERATION 6/25
+──────────────────────────────────────────────────
+  Tokens: prompt=22338 completion=45 total_session=119511
+  Messages: 13 (78,144 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402041269},"product":{"id":84413739},"count":1}})
+    ┌─ API POST /order/orderline
+    │  body:   {"order": {"id": 402041269}, "product": {"id": 84413739}, "count": 1}
+    └─ 201 OK (4.7s) id=1607578630
+    │  response: {"value": {"id": 1607578630, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607578630", "product": {"id": 84413739, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84413739"}, "inventory": null, "description": "", "displayName": "1175 Horas de consultoría", "count": 1.0, "unitCostCurrency": 0.0, "unitPriceExcludingVatCurrency": 3900.0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "markup": 0.0, "discount": 0.0, "vatType": {"id": 31, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/31"}, "amountExcludingVatCurrency": 3900.0, "amountIncludingVatCurrency": 4485.0, "vendor": null, "order": {"id": 402041269, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402041269"}, "unitPriceIncludingVatCurrency": 4485.0, "isSubscription": false, "subscriptionPeriodStart": null, "subscriptionPeriodEnd": null, "orderGroup": null, "sortIndex": 0, "isPicked": false, "pickedDate": null, "orderedQuantity": 0, "isCharged": false}}
+  Iteration 6 took 5.7s
+
+──────────────────────────────────────────────────
+  ITERATION 7/25
+──────────────────────────────────────────────────
+  Tokens: prompt=22738 completion=45 total_session=142294
+  Messages: 15 (79,122 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402041269},"product":{"id":84413741},"count":1}})
+    ┌─ API POST /order/orderline
+    │  body:   {"order": {"id": 402041269}, "product": {"id": 84413741}, "count": 1}
+    └─ 201 OK (6.3s) id=1607578637
+    │  response: {"value": {"id": 1607578637, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607578637", "product": {"id": 84413741, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84413741"}, "inventory": null, "description": "", "displayName": "9974 Informe de análisis", "count": 1.0, "unitCostCurrency": 0.0, "unitPriceExcludingVatCurrency": 3400.0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "markup": 0.0, "discount": 0.0, "vatType": {"id": 6, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/6"}, "amountExcludingVatCurrency": 3400.0, "amountIncludingVatCurrency": 3400.0, "vendor": null, "order": {"id": 402041269, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402041269"}, "unitPriceIncludingVatCurrency": 3400.0, "isSubscription": false, "subscriptionPeriodStart": null, "subscriptionPeriodEnd": null, "orderGroup": null, "sortIndex": 0, "isPicked": false, "pickedDate": null, "orderedQuantity": 0, "isCharged": false}}
+  Iteration 7 took 7.5s
+
+──────────────────────────────────────────────────
+  ITERATION 8/25
+──────────────────────────────────────────────────
+  Tokens: prompt=23136 completion=75 total_session=165505
+  GPT says: All the order lines have been added successfully. Now, let's create the invoice for these order lines.
+  Messages: 17 (80,199 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/invoice","body":{"invoiceDate":"2026-03-21","invoiceDueDate":"2026-04-04","orders":[{"id":402041269}]}})
+    ┌─ API POST /invoice
+    │  body:   {"invoiceDate": "2026-03-21", "invoiceDueDate": "2026-04-04", "orders": [{"id": 402041269}]}
+    └─ 201 OK (5.3s) id=2147644257
+    │  response: {"value": {"id": 2147644257, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147644257", "invoiceNumber": 1, "invoiceDate": "2026-03-21", "customer": {"id": 108331265, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108331265"}, "creditedInvoice": 0, "isCredited": false, "invoiceDueDate": "2026-04-04", "kid": "", "invoiceComment": "", "comment": "", "orders": [{"id": 402041269, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402041269"}], "orderLines": [{"id": 1607578630, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607578630"}, {"id": 1607578622, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607578622"}, {"id": 1607578637, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607578637"}], "travelReports": [], "projectInvoiceDetails": [{"id": 1965798161, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/details/1965798161"}], "voucher": {"id": 609181662, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609181662"}, "deliveryDate": "2026-03-21", "amount": 42260.0, "amountCurrency": 42260.0, "amountExcludingVat": 34800.0, "amountExcludingVatCurrency": 34800.0, "amountRoundoff": 0, "amountRoundoffCurrency": 0, "amountOutstanding": 42260.0, "amountCurrencyOutstanding": 42260.0, "amountOutstandingTotal": 42260.0, "amountCurrencyOutstandingTotal": 42260.0, "sumRemits": 0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "isCreditNote": false, "isCharged": true, "isApproved": false, "postings": [{"id": 384588571…
+  Iteration 8 took 7.0s
+
+──────────────────────────────────────────────────
+  ITERATION 9/25
+──────────────────────────────────────────────────
+  Tokens: prompt=23829 completion=9 total_session=189343
+  Messages: 19 (81,893 chars)
+  Tool calls (1):
+    [1] done()
+
+  ⏳ Verifying task completion (228s remaining)...
+  📋 Verification prompt (3739 chars):
+    │ TASK: Crea una factura para el cliente Sierra SL (org. nº 861379760) con tres líneas de producto: Mantenimiento (2109) a 27500 NOK con 25 % IVA, Horas de consultoría (1175) a 3900 NOK con 15 % IVA (alimentos), y Informe de análisis (9974) a 3400 NOK con 0 % IVA (exento).
+    │ 
+    │ 
+    │ ACTION LOG (chronological):
+    │ CALL: tripletex_api({"method":"GET","path":"/customer"})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"GET","path":"/ledger/vatType"})
+    │ CALL: tripletex_api({"method":"GET","path":"/product"})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"POST","path":"/order","body":{"customer":{"id":108331265},"orderDate":"2026-03-21","deliveryDate":"2026-03-21"}})
+    │ status=ok id=402041269
+    │ CALL: tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402041269},"product":{"id":84413738},"count":1}})
+    │ status=ok id=1607578622 count=1.0
+    │ CALL: tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402041269},"product":{"id":84413739},"count":1}})
+    │ status=ok id=1607578630 count=1.0
+    │ CALL: tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402041269},"product":{"id":84413741},"count":1}})
+    │ status=ok id=1607578637 count=1.0
+    │ CALL: tripletex_api({"method":"POST","path":"/invoice","body":{"invoiceDate":"2026-03-21","invoiceDueDate":"2026-04-04","orders":[{"id":402041269}]}})
+    │ status=ok id=2147644257 amount=42260.0 amountCurrency=42260.0 invoiceNumber=1
+    │ CALL: done({})
+    │ 
+    │ You are an accounting verification agent. Based ONLY on the action log above, check:
+    │ 1. MATH: All amounts, percentages, VAT calculations correct? (e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)
+    │ 2. COMPLETENESS: Were all steps in the task done? Look at the CALL entries — if the action log shows the step was performed with status=ok, it WAS done. Do NOT say a step is missing if you can see it in the log!
+    │ IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!
+    │ 3. DATA: Names, org numbers, dates match the task?
+    │ 4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently. EXCEPTION: Supplier invoice (supplierInvoice) responses normally show amount=0 — this is OK.
+    │ 5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.
+    │ 6. PAYMENT AMOUNTS: Invoice payments and reversals use the FULL amount INCLUDING VAT, not excl. VAT. If the task says 'X NOK excl. VAT', the correct payment/reversal amount is X × 1.25 (Norwegian 25% VAT). Do NOT flag a mismatch between excl. VAT amounts in the task and incl. VAT payment amounts.
+    │ 7. VAT BREAKDOWN: If the total invoice amount matches the expected sum, do NOT fail on 'VAT breakdown not reflected' or similar vague VAT concerns. Only fail if a specific line item has the WRONG VAT rate applied.
+    │ 
+    │ CRITICAL: Be CONSERVATIVE. When in doubt, say PASS.
+    │ Only say FAIL for CLEAR, OBJECTIVE, SPECIFIC errors (wrong math, completely missing step, wrong name).
+    │ Do NOT say FAIL for: vague concerns, 'might be wrong', uncertain issues, minor stylistic differences, or steps you cannot confirm from the log (absence of evidence is NOT evidence of absence).
+    │ A false FAIL causes MORE damage than a missed error. When uncertain, ALWAYS say PASS.
+    │ If the action log shows all main steps completed with status=ok, say PASS.
+    │ 
+    │ Reply ONLY with either:
+    │ - 'PASS' if everything looks correct or you are unsure
+    │ - 'FAIL: <specific issue>' ONLY if there is an obvious, objective error
+  🔍 Verification (1009 tokens): PASS
+
+  ✓ DONE — 9 iterations, 189343 tokens, 62.1s
+
+======================================================================
+  TASK COMPLETE — total 62.6s
+======================================================================
+
