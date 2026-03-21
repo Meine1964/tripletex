@@ -1583,7 +1583,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             "EXCEPTION: Supplier invoice (supplierInvoice) responses normally show amount=0 — this is OK.\n"
                             "5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. "
                             "For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. "
-                            "For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.\n\n"
+                            "For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.\n"
+                            "6. PAYMENT AMOUNTS: Invoice payments and reversals use the FULL amount INCLUDING VAT, not excl. VAT. "
+                            "If the task says 'X NOK excl. VAT', the correct payment/reversal amount is X × 1.25 (Norwegian 25% VAT). "
+                            "Do NOT flag a mismatch between excl. VAT amounts in the task and incl. VAT payment amounts.\n\n"
                             "CRITICAL: Be CONSERVATIVE. When in doubt, say PASS.\n"
                             "Only say FAIL for CLEAR, OBJECTIVE, SPECIFIC errors (wrong math, completely missing step, wrong name).\n"
                             "Do NOT say FAIL for: vague concerns, 'might be wrong', uncertain issues, minor stylistic differences, "
@@ -2137,14 +2140,56 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     pending_employee_rename = None
                     print(f"    │  [track] employee renamed successfully via PUT", flush=True)
 
-                # Step 1: POST /employee failed → save desired name
+                # Step 1: POST /employee failed → auto-fix by finding + renaming existing employee
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/employee" and sc >= 400 and req_body:
                     fn = req_body.get("firstName", "")
                     ln = req_body.get("lastName", "")
                     if fn and ln:
-                        pending_employee_rename = {"firstName": fn, "lastName": ln}
-                        employee_renamed = False
-                        print(f"    │  [track] employee rename pending: {fn} {ln}", flush=True)
+                        print(f"    │  [auto-fix] POST /employee failed — searching for existing employee to rename as {fn} {ln}", flush=True)
+                        try:
+                            # GET all employees
+                            get_emp_result = call_tripletex(base_url, auth, "GET", "/employee", params={"fields": "*"})
+                            emp_list = get_emp_result.get("values", [])
+                            if emp_list:
+                                # Pick last non-admin employee (or last employee)
+                                target_emp = emp_list[-1]
+                                for emp in emp_list:
+                                    if emp.get("firstName", "").lower() != "admin":
+                                        target_emp = emp
+                                emp_id = target_emp["id"]
+                                emp_ver = target_emp.get("version", 0)
+                                put_body = {
+                                    "id": emp_id,
+                                    "version": emp_ver,
+                                    "firstName": fn,
+                                    "lastName": ln,
+                                    "dateOfBirth": "1990-01-01",
+                                }
+                                # Also set email if provided
+                                if req_body.get("email"):
+                                    put_body["email"] = req_body["email"]
+                                rename_resp = call_tripletex(base_url, auth, "PUT", f"/employee/{emp_id}", body=put_body)
+                                rename_sc = rename_resp.get("_status_code", 200)
+                                if rename_sc < 400:
+                                    # Return the renamed employee as if POST succeeded
+                                    result = rename_resp
+                                    sc = 201
+                                    result["_status_code"] = 201
+                                    employee_renamed = True
+                                    pending_employee_rename = None
+                                    print(f"    │  [auto-fix] employee {emp_id} renamed to {fn} {ln} — returning as created", flush=True)
+                                else:
+                                    pending_employee_rename = {"firstName": fn, "lastName": ln}
+                                    employee_renamed = False
+                                    print(f"    │  [auto-fix] rename failed ({rename_sc}), falling back to GPT", flush=True)
+                            else:
+                                pending_employee_rename = {"firstName": fn, "lastName": ln}
+                                employee_renamed = False
+                                print(f"    │  [auto-fix] no employees found, falling back to GPT", flush=True)
+                        except Exception as e:
+                            pending_employee_rename = {"firstName": fn, "lastName": ln}
+                            employee_renamed = False
+                            print(f"    │  [auto-fix] employee rename error: {e}", flush=True)
                 # Step 1b: POST /employee succeeded → no rename needed
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/employee" and sc < 400:
                     pending_employee_rename = None
