@@ -286,8 +286,10 @@ Step 1: Find the employee.
   IMPORTANT: If POST /employee fails with "Brukertype" error, GET the existing employee and PUT to update name.
   IMPORTANT: Employee MUST have an employment record. If you see "ikke registrert med et arbeidsforhold i perioden":
     a. First ensure employee has dateOfBirth set (PUT /employee/{id} with dateOfBirth if missing)
-    b. Then POST /employee/employment with body: {"employee": {"id": EMPLOYEE_ID}, "startDate": "YYYY-MM-01"}
+    b. GET /company/>withLoginAccess to find the company, then look for its "id" in the response.
+    c. POST /employee/employment with body: {"employee": {"id": EMPLOYEE_ID}, "startDate": "YYYY-MM-01", "division": {"id": COMPANY_ID}}
        Use the 1st of the current month as startDate. Do NOT include "department" field.
+       CRITICAL: You MUST include "division" with the company ID! Without it, salary transactions will fail with "Arbeidsforholdet er ikke knyttet mot en virksomhet". The division ID is the same as the company ID from /company/>withLoginAccess. Division CANNOT be changed after creation!
 
 Step 2: Look up salary types.
   GET /salary/type — returns available salary types. Key types:
@@ -1132,6 +1134,20 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 print(f"    │  [fix] perDiem rateCategory {old_id} → {best_cat['id']} ({best_cat['name']})", flush=True)
                         except Exception as e:
                             print(f"    │  [fix] perDiem auto-fix failed: {e}", flush=True)
+
+                # Auto-fix: employment division — salary fails without it, and it can't be changed after creation
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
+                        and req_body and not req_body.get("division")):
+                    try:
+                        co_resp = call_tripletex(base_url, auth, "GET", "/company/>withLoginAccess")
+                        companies = co_resp.get("values", [])
+                        if companies:
+                            co_id = companies[0].get("id")
+                            if co_id:
+                                req_body["division"] = {"id": co_id}
+                                print(f"    │  [fix] employment: added division {{id:{co_id}}} from company lookup", flush=True)
+                    except Exception as e:
+                        print(f"    │  [fix] employment division auto-fix failed: {e}", flush=True)
 
                 # Auto-fix: milestone product pricing — price should be ex-VAT
                 # If we tracked a fixedprice and now POST /product with price = fixedprice * fraction,
