@@ -1112,19 +1112,68 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     ]
 
     user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates."
+    vision_parts = []  # For PDF/image vision inputs
     if files:
         user_content += f"\n\nAttached files ({len(files)}):"
         for f in files:
-            user_content += f"\n- {f.get('filename', 'unknown')} ({f.get('mime_type', 'unknown')})"
+            fname = f.get("filename", "unknown")
+            mime = f.get("mime_type", "unknown")
+            user_content += f"\n- {fname} ({mime})"
             try:
                 raw = base64.b64decode(f["content_base64"])
-                text = raw.decode("utf-8", errors="ignore")
-                if len(text) < 10000:
-                    user_content += f"\n  Content:\n{text}"
-            except Exception:
-                pass
+                is_pdf = mime == "application/pdf" or fname.lower().endswith(".pdf")
+                is_image = mime.startswith("image/")
 
-    messages.append({"role": "user", "content": user_content})
+                if is_pdf:
+                    # Extract text from PDF using pdfplumber
+                    try:
+                        import pdfplumber, io
+                        with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                            pdf_text = "\n\n".join(
+                                page.extract_text() or "" for page in pdf.pages
+                            )
+                        if pdf_text.strip():
+                            user_content += f"\n  PDF Text Content:\n{pdf_text[:15000]}"
+                            print(f"    [file] Extracted {len(pdf_text)} chars from PDF: {fname}", flush=True)
+                        else:
+                            user_content += "\n  [PDF has no extractable text — see image below]"
+                            print(f"    [file] PDF has no text, relying on vision: {fname}", flush=True)
+                    except Exception as e:
+                        user_content += f"\n  [PDF text extraction failed: {e}]"
+                        print(f"    [file] PDF extraction error: {e}", flush=True)
+                    # Also send PDF as vision input for GPT-4o to see formatting/tables
+                    vision_parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:application/pdf;base64,{f['content_base64']}",
+                            "detail": "high",
+                        },
+                    })
+                elif is_image:
+                    # Send images directly as vision input
+                    vision_parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime};base64,{f['content_base64']}",
+                            "detail": "high",
+                        },
+                    })
+                    user_content += "\n  [Image attached — see below]"
+                    print(f"    [file] Image sent as vision input: {fname}", flush=True)
+                else:
+                    # Plain text files
+                    text = raw.decode("utf-8", errors="ignore")
+                    if len(text) < 10000:
+                        user_content += f"\n  Content:\n{text}"
+            except Exception as e:
+                user_content += f"\n  [Could not read file: {e}]"
+
+    # Build user message: use content array if we have vision parts, else plain text
+    if vision_parts:
+        user_msg_content = [{"type": "text", "text": user_content}] + vision_parts
+    else:
+        user_msg_content = user_content
+    messages.append({"role": "user", "content": user_msg_content})
     total_tokens = 0
 
     for iteration in range(25):
