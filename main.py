@@ -67,7 +67,7 @@ class LogCapture:
 
 
 def push_log_to_github(log_text: str, filename: str):
-    """Push a log file to the GitHub repo (non-blocking, best-effort)."""
+    """Push a log file to the GitHub repo with retry on conflict."""
     token = os.getenv("GITHUB_TOKEN")
     if not token:
         print("  [log] GITHUB_TOKEN not set — skipping log push", flush=True)
@@ -83,11 +83,25 @@ def push_log_to_github(log_text: str, filename: str):
             "message": f"Auto-log: {filename}",
             "content": content_b64,
         }
-        resp = requests.put(url, headers=headers, json=data, timeout=10)
-        if resp.status_code in (200, 201):
-            print(f"  [log] Pushed to GitHub: test_suite/logs/Day_3/{filename}", flush=True)
-        else:
-            print(f"  [log] GitHub push failed: {resp.status_code} {resp.text[:200]}", flush=True)
+        for attempt in range(5):
+            resp = requests.put(url, headers=headers, json=data, timeout=15)
+            if resp.status_code in (200, 201):
+                print(f"  [log] Pushed to GitHub: test_suite/logs/Day_3/{filename}", flush=True)
+                return
+            elif resp.status_code == 409:
+                # Conflict — branch moved, retry after delay
+                wait = 2 * (attempt + 1)
+                print(f"  [log] GitHub 409 conflict, retry {attempt+1}/5 in {wait}s...", flush=True)
+                time.sleep(wait)
+                continue
+            elif resp.status_code == 422 and "sha" in resp.text.lower():
+                # File already exists (duplicate filename) — skip
+                print(f"  [log] File already exists, skipping: {filename}", flush=True)
+                return
+            else:
+                print(f"  [log] GitHub push failed: {resp.status_code} {resp.text[:200]}", flush=True)
+                return
+        print(f"  [log] GitHub push failed after 5 retries: {filename}", flush=True)
     except Exception as e:
         print(f"  [log] GitHub push error: {e}", flush=True)
 
@@ -1195,7 +1209,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             "Do NOT say a step is missing if you can see it in the log!\n"
                             "IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!\n"
                             "3. DATA: Names, org numbers, dates match the task?\n"
-                            "4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently.\n\n"
+                            "4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently.\n"
+                            "5. BUDGET vs INVOICE: A project 'budget'/'budsjett' is NOT the invoice amount. The invoice is for actual work/costs. Do NOT flag a mismatch between budget and invoice total.\n\n"
                             "Reply ONLY with either:\n"
                             "- 'PASS' if everything looks correct\n"
                             "- 'FAIL: <specific issue>' if something is wrong"
