@@ -756,3 +756,278 @@ rules:
   # This rule reminds GPT in case the auto-fix ever misses it.
   # We cannot validate inside array items with current rule engine,
   # so this is documented here for reference only.
+
+  # ── Employment Details ────────────────────────────────────────
+  - id: employment-details-required
+    description: "POST /employee/employment/details needs employment ref and date"
+    when:
+      method: POST
+      path: /employee/employment/details
+    require_fields:
+      - employment.id
+      - date
+    message: >
+      POST /employee/employment/details requires employment.id and date.
+      First GET /employee/employment to find the employment ID.
+
+  - id: employment-details-put-id-version
+    description: "PUT /employee/employment/details needs id and version"
+    when:
+      method: PUT
+      path_pattern: "^/employee/employment/details/\\d+$"
+    require_fields:
+      - id
+      - version
+    message: >
+      PUT /employee/employment/details requires 'id' and 'version' in body.
+      First GET the details to find current version.
+
+  # ── Standard Time ─────────────────────────────────────────────
+  - id: standardtime-required
+    description: "POST /employee/standardTime needs employee ID and hoursPerDay"
+    when:
+      method: POST
+      path: /employee/standardTime
+    require_fields:
+      - employee.id
+      - hoursPerDay
+    message: >
+      POST /employee/standardTime requires employee.id and hoursPerDay
+      (e.g. 7.5 for standard Norwegian full-time).
+
+  - id: standardtime-hours-type
+    description: "hoursPerDay must be a number"
+    when:
+      method: POST
+      path: /employee/standardTime
+    field_type:
+      hoursPerDay: number
+    message: >
+      'hoursPerDay' must be a number (e.g. 7.5), not a string.
+
+  # ── Block DELETE on employment ────────────────────────────────
+  - id: employment-no-delete
+    description: "DELETE /employee/employment is not allowed (returns 405)"
+    when:
+      method: DELETE
+      path_pattern: "^/employee/employment/\\d+$"
+    require_fields:
+      - _delete_not_allowed
+    message: >
+      DELETE /employee/employment is NOT allowed — returns 405 Method Not
+      Allowed. Use the existing employment record instead. GET
+      /employee/employment?employeeId=X to find and use it.
+
+  # ── Block wrong timesheet paths ───────────────────────────────
+  - id: block-timeEntries
+    description: "Block wrong endpoint /timeEntries — correct is /timesheet/entry"
+    when:
+      method: POST
+      path: /timeEntries
+    require_fields:
+      - _wrong_endpoint
+    message: >
+      Wrong endpoint! /timeEntries does not exist. Use POST /timesheet/entry
+      with employee.id, project.id, activity.id, date, hours.
+
+  - id: block-time-timeEntry
+    description: "Block wrong endpoint /time/timeEntry"
+    when:
+      method: POST
+      path: /time/timeEntry
+    require_fields:
+      - _wrong_endpoint
+    message: >
+      Wrong endpoint! /time/timeEntry does not exist. Use POST /timesheet/entry
+      with employee.id, project.id, activity.id, date, hours.
+
+  # ── Product: reject costExcludingVatCurrency ──────────────────
+  - id: product-no-cost
+    description: "POST /product should not include costExcludingVatCurrency"
+    when:
+      method: POST
+      path: /product
+    reject_fields:
+      - costExcludingVatCurrency
+    message: >
+      Do NOT set 'costExcludingVatCurrency' on products. Only use
+      'priceExcludingVatCurrency' for the selling price.
+
+  # ── Customer PUT needs id + version ───────────────────────────
+  - id: customer-put-id-version
+    description: "PUT /customer needs id and version in body"
+    when:
+      method: PUT
+      path_pattern: "^/customer/\\d+$"
+    require_fields:
+      - id
+      - version
+    message: >
+      PUT /customer requires 'id' and 'version' in the body. First GET
+      the customer to find the current version number.
+
+  # ── Supplier PUT needs id + version ───────────────────────────
+  - id: supplier-put-id-version
+    description: "PUT /supplier needs id and version in body"
+    when:
+      method: PUT
+      path_pattern: "^/supplier/\\d+$"
+    require_fields:
+      - id
+      - version
+    message: >
+      PUT /supplier requires 'id' and 'version' in the body. First GET
+      the supplier to find the current version number.
+
+  # ── Accounting Dimension Name ─────────────────────────────────
+  - id: dimension-name-field
+    description: "POST /ledger/accountingDimensionName uses 'dimensionName' not 'name'"
+    when:
+      method: POST
+      path: /ledger/accountingDimensionName
+    require_fields:
+      - dimensionName
+    message: >
+      POST /ledger/accountingDimensionName requires 'dimensionName' field
+      (NOT 'name'). Example: {"dimensionName": "Produktlinje"}.
+
+  - id: dimension-name-reject-name
+    description: "Reject wrong field 'name' on dimension endpoint"
+    when:
+      method: POST
+      path: /ledger/accountingDimensionName
+    reject_fields:
+      - name
+    message: >
+      Wrong field! Use 'dimensionName' instead of 'name' for POST
+      /ledger/accountingDimensionName.
+
+  # ── Accounting Dimension Value ────────────────────────────────
+  - id: dimension-value-field
+    description: "POST /ledger/accountingDimensionValue uses 'displayName' not 'name'"
+    when:
+      method: POST
+      path: /ledger/accountingDimensionValue
+    require_fields:
+      - displayName
+    message: >
+      POST /ledger/accountingDimensionValue requires 'displayName' field
+      (NOT 'name' or 'value'). Also needs ?dimensionNameId=ID as query param.
+
+  - id: dimension-value-reject-name
+    description: "Reject wrong field 'name' on dimension value endpoint"
+    when:
+      method: POST
+      path: /ledger/accountingDimensionValue
+    reject_fields:
+      - name
+    message: >
+      Wrong field! Use 'displayName' instead of 'name' for POST
+      /ledger/accountingDimensionValue.
+
+  - id: dimension-value-needs-parent
+    description: "POST /ledger/accountingDimensionValue needs dimensionNameId param"
+    when:
+      method: POST
+      path: /ledger/accountingDimensionValue
+    require_params:
+      - dimensionNameId
+    message: >
+      POST /ledger/accountingDimensionValue requires ?dimensionNameId=ID
+      as a query parameter to link it to the parent dimension.
+
+  # ── Incoming Invoice (BETA) ───────────────────────────────────
+  - id: incoming-invoice-required
+    description: "POST /incomingInvoice needs invoiceHeader"
+    when:
+      method: POST
+      path: /incomingInvoice
+    require_fields:
+      - invoiceHeader
+    message: >
+      POST /incomingInvoice requires 'invoiceHeader' with vendorId,
+      invoiceDate, dueDate, invoiceAmount, invoiceNumber, description.
+
+  - id: incoming-invoice-sendto
+    description: "POST /incomingInvoice needs sendTo param"
+    when:
+      method: POST
+      path: /incomingInvoice
+    require_params:
+      - sendTo
+    message: >
+      POST /incomingInvoice requires param sendTo=ledger. Pass it in
+      'params' field, not in body.
+
+  # ── Order needs orderDate ─────────────────────────────────────
+  - id: order-orderdate
+    description: "POST /order needs orderDate"
+    when:
+      method: POST
+      path: /order
+    require_fields:
+      - orderDate
+    message: >
+      POST /order requires 'orderDate' (YYYY-MM-DD). Use today's date.
+
+  # ── Block invoice createFromOrder (wrong endpoint) ────────────
+  - id: block-createFromOrder
+    description: "Block wrong endpoint /invoice/:createFromOrder"
+    when:
+      method: POST
+      path_pattern: "^/invoice/:createFromOrder"
+    require_fields:
+      - _wrong_endpoint
+    message: >
+      Wrong endpoint! /invoice/:createFromOrder does not exist. Use POST
+      /invoice with body {"invoiceDate":"...","invoiceDueDate":"...","orders":[{"id":X}]}.
+
+  # ── Employee employment PUT needs id + version ────────────────
+  - id: employment-put-id-version
+    description: "PUT /employee/employment needs id and version"
+    when:
+      method: PUT
+      path_pattern: "^/employee/employment/\\d+$"
+    require_fields:
+      - id
+      - version
+    message: >
+      PUT /employee/employment requires 'id' and 'version' in the body.
+
+  # ── Block POST to company (use PUT) ──────────────────────────
+  - id: block-post-company
+    description: "POST /company is not valid — use PUT /company to update"
+    when:
+      method: POST
+      path: /company
+    require_fields:
+      - _use_put_not_post
+    message: >
+      POST /company is not a valid endpoint. To update company details,
+      use PUT /company with id and version in the body.
+
+  # ── Block bank account on company ─────────────────────────────
+  - id: company-no-bankaccount
+    description: "PUT /company should not set bankAccountNumber — use ledger/account"
+    when:
+      method: PUT
+      path: /company
+    reject_fields:
+      - bankAccountNumber
+    message: >
+      bankAccountNumber is NOT set via PUT /company! Use PUT
+      /ledger/account/{id} to set bankAccountNumber on the bank ledger
+      account (1920 Bankinnskudd). GET /ledger/account?isBankAccount=true
+      to find it first.
+
+  # ── Salary: block wrong month values ──────────────────────────
+  - id: salary-month-range
+    description: "Salary month must be 1-12"
+    when:
+      method: POST
+      path: /salary/transaction
+    field_format:
+      month: "^([1-9]|1[0-2])$"
+    message: >
+      'month' on salary transaction must be 1-12 (current month number).
+      Not 0, not 13+.

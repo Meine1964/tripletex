@@ -1669,6 +1669,42 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         "content": json.dumps({"error": err_msg, "_status_code": 404}),
                     })
                     continue
+                # Auto-fix: block DELETE on employment (returns 405)
+                if args["method"] == "DELETE" and "/employee/employment/" in args["path"]:
+                    # Extract employee ID from path if possible
+                    emp_id_hint = ""
+                    for prev_msg in reversed(messages[-10:]):
+                        if isinstance(prev_msg, dict) and prev_msg.get("role") == "tool":
+                            try:
+                                c = json.loads(prev_msg["content"])
+                                vals = c.get("values", [])
+                                if vals and "employeeId" in str(vals[0]) or "employee" in str(vals[0]):
+                                    emp_id_hint = f" Use the existing employment."
+                                    break
+                            except Exception:
+                                pass
+                    err_msg = (f"DELETE on /employee/employment is NOT ALLOWED (405 Method Not Allowed).{emp_id_hint} "
+                               "Instead, use the existing employment record: "
+                               "GET /employee/employment?employeeId=X to find it, then proceed with that employment ID.")
+                    print(f"    │  [fix] blocked DELETE /employee/employment — not allowed", flush=True)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps({"error": err_msg, "_status_code": 405}),
+                    })
+                    continue
+                # Auto-fix: block POST /invoice/:createFromOrder — wrong endpoint
+                if args["method"] == "POST" and "/:createFromOrder" in args["path"]:
+                    err_msg = ("Wrong endpoint! /invoice/:createFromOrder does not exist. "
+                               'Use POST /invoice with body: {"invoiceDate":"YYYY-MM-DD",'
+                               '"invoiceDueDate":"YYYY-MM-DD","orders":[{"id":ORDER_ID}]}')
+                    print(f"    │  [fix] blocked /:createFromOrder — wrong endpoint", flush=True)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps({"error": err_msg, "_status_code": 404}),
+                    })
+                    continue
                 # Auto-fix: ensure isCustomer:true on POST /customer
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/customer" and req_body:
                     if "isCustomer" not in req_body:
@@ -1682,6 +1718,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         print(f"    │  [fix] copied email to overdueNoticeEmail on POST /customer", flush=True)
                 # Auto-fix: ensure invoiceEmail and overdueNoticeEmail on POST /supplier
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/supplier" and req_body:
+                    if "isSupplier" not in req_body:
+                        req_body["isSupplier"] = True
                     if req_body.get("email") and not req_body.get("invoiceEmail"):
                         req_body["invoiceEmail"] = req_body["email"]
                         print(f"    │  [fix] copied email to invoiceEmail on POST /supplier", flush=True)
@@ -1785,6 +1823,40 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     if req_body.get("department"):
                         req_body.pop("department")
                         print(f"    │  [fix] removed department from employment POST", flush=True)
+
+                # Auto-fix: POST /ledger/voucher — ensure each posting has 'date' and 'row'
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/ledger/voucher"
+                        and req_body):
+                    postings = req_body.get("postings", [])
+                    voucher_date = req_body.get("date", today)
+                    for idx, p in enumerate(postings):
+                        if "date" not in p:
+                            p["date"] = voucher_date
+                            print(f"    │  [fix] voucher posting[{idx}]: added date={voucher_date}", flush=True)
+                        if "row" not in p or p["row"] == 0:
+                            p["row"] = idx + 1
+                            print(f"    │  [fix] voucher posting[{idx}]: set row={idx+1}", flush=True)
+                        # Ensure amountCurrency matches amount if missing
+                        if "amount" in p and "amountCurrency" not in p:
+                            p["amountCurrency"] = p["amount"]
+                            print(f"    │  [fix] voucher posting[{idx}]: added amountCurrency", flush=True)
+
+                # Auto-fix: POST /employee/employment/details — ensure employment ref
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment/details"
+                        and req_body):
+                    # If missing employmentType defaults
+                    if "employmentType" not in req_body:
+                        req_body["employmentType"] = "ORDINARY"
+                        print(f"    │  [fix] employment details: added employmentType=ORDINARY", flush=True)
+                    if "employmentForm" not in req_body:
+                        req_body["employmentForm"] = "PERMANENT"
+                        print(f"    │  [fix] employment details: added employmentForm=PERMANENT", flush=True)
+                    if "remunerationType" not in req_body:
+                        req_body["remunerationType"] = "MONTHLY_PAY"
+                        print(f"    │  [fix] employment details: added remunerationType=MONTHLY_PAY", flush=True)
+                    if "workingHoursScheme" not in req_body:
+                        req_body["workingHoursScheme"] = "NON_SHIFT"
+                        print(f"    │  [fix] employment details: added workingHoursScheme=NON_SHIFT", flush=True)
 
                 # Auto-fix: milestone product pricing — price should be ex-VAT
                 # If we tracked a fixedprice and now POST /product with price = fixedprice * fraction,
