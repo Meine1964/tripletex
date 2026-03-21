@@ -368,7 +368,7 @@ KEY ENDPOINTS:
 - GET/POST /deliveryAddress — delivery addresses
 - POST /incomingInvoice — [BETA] register a supplier/incoming invoice. Params: sendTo=ledger. Body: {invoiceHeader:{vendorId, invoiceDate, dueDate, invoiceAmount, invoiceNumber, description}, orderLines:[{externalId, row, accountId, amountInclVat, vatTypeId, description}]}
 - POST /supplierInvoice — create supplier invoice with voucher postings: {invoiceNumber, invoiceDate, invoiceDueDate, supplier:{id}, voucher:{date, description, postings:[{row, date, amountGross, amountGrossCurrency, account:{id}, vatType:{id}}]}}
-- GET/POST /ledger/voucher — journal entries with postings. POST requires JSON BODY (not params!): {date, description, postings:[...]}
+- GET/POST /ledger/voucher — journal entries with postings. POST requires JSON BODY (not params!): {date, description, postings:[{row, date, amountGross, amountGrossCurrency, account:{id}, vatType:{id:0}}]}. IMPORTANT: Use amountGross (NOT amount) for posting amounts!
 - POST /ledger/accountingDimensionName — create a free/user-defined accounting dimension. Field: {\"dimensionName\": \"DIM_NAME\"} (NOT \"name\"!)
 - POST /ledger/accountingDimensionValue — create a value. Body: {\"displayName\": \"VALUE\"}, pass ?dimensionNameId=ID as query param
 - GET /ledger/accountingDimensionName — list accounting dimension names
@@ -382,6 +382,7 @@ INVOICE WORKFLOW (follow EXACT order — do NOT skip steps):
 2. GET /ledger/vatType — ONLY if you need to CREATE products. Find correct VAT type id. For 25% outgoing VAT: look for name containing "Utgående" with percentage=25. For exempt: look for number 6. Use the "id" field, NOT the "number" field.
 3. POST /product — ONLY if products don't already exist! Use name, priceExcludingVatCurrency, vatType:{id: from step 2}. If vatType gives error, create product WITHOUT vatType.
 4. POST /customer — name, isCustomer:true, organizationNumber (if given), email (if given)
+   CRITICAL: ALWAYS create a new customer if the task specifies a name and org number! Do NOT reuse existing sandbox customers — they have different names/org numbers and the scoring will check these fields.
 5. POST /order — customer:{id: from step 4}, orderDate, deliveryDate (use invoiceDate or today)
 6. POST /order/orderline — order:{id: from step 5}, product:{id: from step 1 or 3}, count:1. Repeat for each product.
 7. POST /invoice — invoiceDate, invoiceDueDate (14 days after invoiceDate), orders:[{id: from step 5}]
@@ -429,9 +430,10 @@ When a foreign-currency invoice is paid at a different exchange rate than when i
 3. Register the FULL payment for the invoice: PUT /invoice/{id}/:payment with paidAmount = invoice's "amount"
    This closes the invoice fully. The exchange rate difference is handled separately.
 4. Create a journal voucher for the exchange rate difference:
-   POST /ledger/voucher with body containing TWO postings that sum to zero:
-   - Debit posting (positive amount) on one account
-   - Credit posting (negative amount) on the other account
+   POST /ledger/voucher with body containing TWO postings that sum to zero.
+   Use amountGross and amountGrossCurrency (NOT amount/amountCurrency!) for all voucher postings.
+   - Debit posting (positive amountGross) on one account
+   - Credit posting (negative amountGross) on the other account
    For agio (gain): debit bank account (1920), credit 8060
    For disagio (loss): debit 8160, credit bank account (1920)
    CRITICAL: Postings MUST always sum to zero! Never create a voucher with just one posting.
@@ -454,7 +456,8 @@ Step 2: Post the reminder fee as a journal voucher.
   Look up account IDs: GET /ledger/account with params={"number":"1500"}
   POST /ledger/voucher with TWO balanced postings (sum to zero).
   IMPORTANT: Account 1500 (Kundefordringer) is a CUSTOMER ledger type — postings on it REQUIRE "customer": {"id": CUSTOMER_ID}.
-  Example: {"row":1,"date":"...","amount":70,"amountCurrency":70,"account":{"id":ACC_1500_ID},"customer":{"id":CUST_ID}}
+  Example: {"row":1,"date":"...","amountGross":70,"amountGrossCurrency":70,"account":{"id":ACC_1500_ID},"customer":{"id":CUST_ID},"vatType":{"id":0}}
+  CRITICAL: Use amountGross/amountGrossCurrency (NOT amount/amountCurrency!) for ALL voucher postings. The amount field is read-only.
 
 Step 3: Create an invoice for the reminder fee.
   CRITICAL: Reminder fees (purregebyr) are VAT-EXEMPT in Norway!
@@ -483,6 +486,42 @@ REVERSE PAYMENT WORKFLOW (for "reverse" / "revert" / "devuelto" / "tilbakefør" 
    - paidAmount: NEGATE the invoice's "amount" field (e.g. if invoice amount is 24062.5, use -24062.5)
    - paidAmountCurrency: same negative amount
    CRITICAL: Use the invoice's ACTUAL "amount" or "amountCurrency" field from step 1, then NEGATE it. Do NOT calculate VAT manually!
+
+YEAR-END CLOSING / DEPRECIATION WORKFLOW (for "årsoppgjør"/"encerramento anual"/"year-end"/"Jahresabschluss"/"cierre anual"/"forenkla årsoppgjer"/"depreciation"/"avskriving" tasks):
+This task asks you to calculate and post annual depreciation, reverse prepaid expenses, and/or post tax provision.
+
+Step 1: Look up ALL needed accounts FIRST.
+  GET /ledger/account?fields=id,number,name — get the full chart of accounts.
+  For each account number in the task (e.g. 6010, 1209, 1700, 8700, 2920), find its id.
+  CRITICAL: If account 1209 does NOT exist, credit the ASSET account directly (e.g. 1200, 1210, 1250). This is simplified depreciation.
+  CRITICAL: Account numbers are NOT account IDs! You MUST look them up first!
+
+Step 2: Calculate depreciation for each asset.
+  Linear depreciation: annual_amount = purchase_price / useful_life_years. Round to 2 decimals.
+  Example: 170000 / 4 = 42500.00, 349200 / 6 = 58200.00, 258400 / 3 = 86133.33
+
+Step 3: Post EACH depreciation as a SEPARATE voucher.
+  POST /ledger/voucher with body:
+  {
+    "date": "YYYY-12-31" (or the date specified),
+    "description": "Depreciation for ASSET_NAME",
+    "postings": [
+      {"row": 1, "date": "YYYY-12-31", "amountGross": DEP_AMOUNT, "amountGrossCurrency": DEP_AMOUNT, "account": {"id": EXPENSE_ACCOUNT_ID}, "vatType": {"id": 0}},
+      {"row": 2, "date": "YYYY-12-31", "amountGross": -DEP_AMOUNT, "amountGrossCurrency": -DEP_AMOUNT, "account": {"id": ACCUM_DEP_OR_ASSET_ACCOUNT_ID}, "vatType": {"id": 0}}
+    ]
+  }
+  Debit: expense account (6010). Credit: accumulated depreciation account (1209) or asset account if 1209 doesn't exist.
+
+Step 4: Reverse prepaid expenses.
+  POST /ledger/voucher: Debit expense account (e.g. 6010), Credit prepaid account (e.g. 1700).
+
+Step 5: Calculate and post tax provision (if requested).
+  Look up accounts 8700 (tax expense) and 2920 (tax payable).
+  Calculate: taxable_profit = sum of all income − sum of all expenses (approximate from the task context).
+  Tax amount = taxable_profit × 0.22 (Norwegian 22% corporate tax).
+  POST /ledger/voucher: Debit 8700 (tax expense), Credit 2920 (tax payable).
+
+IMPORTANT: Complete ALL steps in the task! Do not call done() until depreciation, prepaid reversal, AND tax provision are all posted.
 
 SALARY / PAYROLL WORKFLOW (for "paie"/"lønn"/"salary"/"Gehalt"/"salario"/"lön"/"payroll" tasks):
 The task will ask you to run payroll for an employee with a base salary and possibly a bonus or other additions.
@@ -1020,11 +1059,12 @@ Step 3: Create the voucher.
     "date": "{today}",
     "description": "Description of the journal entry",
     "postings": [
-      {"row": 1, "date": "{today}", "amount": DEBIT_AMOUNT, "amountCurrency": DEBIT_AMOUNT, "account": {"id": DEBIT_ACCOUNT_ID}},
-      {"row": 2, "date": "{today}", "amount": -CREDIT_AMOUNT, "amountCurrency": -CREDIT_AMOUNT, "account": {"id": CREDIT_ACCOUNT_ID}}
+      {"row": 1, "date": "{today}", "amountGross": DEBIT_AMOUNT, "amountGrossCurrency": DEBIT_AMOUNT, "account": {"id": DEBIT_ACCOUNT_ID}, "vatType": {"id": 0}},
+      {"row": 2, "date": "{today}", "amountGross": -CREDIT_AMOUNT, "amountGrossCurrency": -CREDIT_AMOUNT, "account": {"id": CREDIT_ACCOUNT_ID}, "vatType": {"id": 0}}
     ]
   }
   CRITICAL POSTING RULES:
+  - Use amountGross and amountGrossCurrency for posting amounts (NOT amount/amountCurrency — those are read-only!)
   - Each posting MUST have a "row" field: 1, 2, 3... (starting from 1, NOT 0! Row 0 is reserved for system-generated entries)
   - Each posting MUST have a "date" field matching the voucher date
   - Debit = positive amount, Credit = negative amount. Postings MUST sum to zero.
@@ -1498,7 +1538,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "- Invoice NOT sent unless task explicitly says send/sende.\n"
                                 "- Supplier invoice amount=0 in response is NORMAL for Tripletex — do NOT flag it as an error.\n"
                             )
-                        elif any(kw in _pl for kw in ["fastpris", "fixed price", "fixedprice", "prix fixe", "festpreis", "precio fijo", "delbetaling", "milestone", "milepæl"]):
+                        elif any(kw in _pl for kw in ["fastpris", "fixed price", "fixedprice", "prix fixe", "festpreis", "precio fijo", "milestone", "milepæl"]):
                             _task_checks = (
                                 "TASK TYPE: Fixed-price project + milestone invoice.\n"
                                 "Check these SPECIFIC things:\n"
@@ -1628,16 +1668,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         v_tokens = verify_resp.usage.total_tokens if verify_resp.usage else 0
                         print(f"  🔍 Verification ({v_tokens} tokens): {verdict}", flush=True)
                         if verdict.upper().startswith("FAIL"):
-                            # Reject done() — feed back to agent
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "content": json.dumps({
-                                    "error": f"VERIFICATION FAILED — do NOT call done() yet. Fix this issue first: {verdict}",
-                                }),
-                            })
-                            print(f"  ↩ Returning to agent to fix issue", flush=True)
-                            continue  # continue the tool_calls loop, then next iteration
+                            # Log the failure but DO NOT return to agent — false FAILs
+                            # cause more damage than missed errors (agent undoes correct work)
+                            print(f"  ⚠ Verifier said FAIL but proceeding (logged only): {verdict}", flush=True)
                     except Exception as e:
                         print(f"  ⚠ Verification error (proceeding): {e}", flush=True)
 
@@ -1876,10 +1909,21 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         if "row" not in p or p["row"] == 0:
                             p["row"] = idx + 1
                             print(f"    │  [fix] voucher posting[{idx}]: set row={idx+1}", flush=True)
-                        # Ensure amountCurrency matches amount if missing
-                        if "amount" in p and "amountCurrency" not in p:
-                            p["amountCurrency"] = p["amount"]
-                            print(f"    │  [fix] voucher posting[{idx}]: added amountCurrency", flush=True)
+                        # Fix amount field names: amount→amountGross (amount is read-only in Tripletex)
+                        if "amount" in p and "amountGross" not in p:
+                            p["amountGross"] = p.pop("amount")
+                            print(f"    │  [fix] voucher posting[{idx}]: amount → amountGross", flush=True)
+                        if "amountCurrency" in p and "amountGrossCurrency" not in p:
+                            p["amountGrossCurrency"] = p.pop("amountCurrency")
+                            print(f"    │  [fix] voucher posting[{idx}]: amountCurrency → amountGrossCurrency", flush=True)
+                        # Ensure amountGrossCurrency matches amountGross if missing
+                        if "amountGross" in p and "amountGrossCurrency" not in p:
+                            p["amountGrossCurrency"] = p["amountGross"]
+                            print(f"    │  [fix] voucher posting[{idx}]: added amountGrossCurrency", flush=True)
+                        # Ensure vatType is set (default to 0 = no VAT)
+                        if "vatType" not in p:
+                            p["vatType"] = {"id": 0}
+                            print(f"    │  [fix] voucher posting[{idx}]: added vatType={{id:0}}", flush=True)
                         # Strip accountingDimensionValue — not a valid field on voucher postings
                         if "accountingDimensionValue" in p:
                             p.pop("accountingDimensionValue")
