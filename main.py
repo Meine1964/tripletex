@@ -95,6 +95,30 @@ def push_log_to_gcs(log_text: str, filename: str):
     except Exception as e:
         print(f"  [gcs] Upload failed: {e}", flush=True)
 
+
+# ── GitHub Log Push (fallback when GCS unavailable) ─────────────
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+GITHUB_REPO = "Meine1964/tripletex"
+GITHUB_LOG_PATH = "logs"
+
+def push_log_to_github(log_text: str, filename: str):
+    """Push a log file to GitHub repo via API."""
+    if not GITHUB_TOKEN:
+        return
+    try:
+        import base64 as b64
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_LOG_PATH}/{filename}"
+        headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+        content_b64 = b64.b64encode(log_text.encode("utf-8")).decode("ascii")
+        body = {"message": f"Log: {filename}", "content": content_b64, "branch": "main"}
+        resp = requests.put(url, json=body, headers=headers, timeout=15)
+        if resp.status_code in (200, 201):
+            print(f"  [github] Log pushed: {filename}", flush=True)
+        else:
+            print(f"  [github] Push failed ({resp.status_code}): {resp.text[:200]}", flush=True)
+    except Exception as e:
+        print(f"  [github] Push error: {e}", flush=True)
+
 def list_gcs_logs():
     """List all log files in GCS bucket."""
     try:
@@ -440,16 +464,29 @@ REVERSE PAYMENT WORKFLOW (for "reverse" / "revert" / "devuelto" / "tilbakefør" 
 SALARY / PAYROLL WORKFLOW (for "paie"/"lønn"/"salary"/"Gehalt"/"salario"/"lön"/"payroll" tasks):
 The task will ask you to run payroll for an employee with a base salary and possibly a bonus or other additions.
 
-Step 1: Find the employee.
-  GET /employee?fields=* — the employee usually already exists in the sandbox. Update their name if needed.
-  If not found, create with POST /employee (firstName, lastName, email).
-  IMPORTANT: If POST /employee fails with "Brukertype" error, GET the existing employee and PUT to update name.
-  IMPORTANT: Employee MUST have an employment record. If you see "ikke registrert med et arbeidsforhold i perioden":
-    a. First ensure employee has dateOfBirth set (PUT /employee/{id} with dateOfBirth if missing)
-    b. GET /company/>withLoginAccess to find the company, then look for its "id" in the response.
-    c. POST /employee/employment with body: {"employee": {"id": EMPLOYEE_ID}, "startDate": "YYYY-MM-01", "division": {"id": COMPANY_ID}}
+Step 1: Find or create the employee.
+  GET /employee?fields=* — the employee usually already exists in the sandbox.
+  If the task provides an email: FIRST try POST /employee with {firstName, lastName, email}.
+  If POST fails (422 "Brukertype" error): GET existing employee, pick one, ALWAYS do PUT to rename.
+  CRITICAL: You MUST PUT /employee/{id} to rename the employee! Sandbox employees have generic names.
+  CRITICAL: PUT body MUST include id, version, firstName, lastName, dateOfBirth. Do NOT include email!
+
+Step 2: Ensure employee has an employment record with a division.
+  GET /employee/employment?employeeId=EMPLOYEE_ID&fields=*
+  CASE A — Employment EXISTS with division set → great, proceed to Step 3.
+  CASE B — Employment EXISTS but NO division → division CANNOT be changed after creation.
+    You must DELETE the existing employment first (DELETE /employee/employment/{employmentId}),
+    then create a new one with division (see Case C).
+  CASE C — NO employment exists:
+    a. GET /company/>withLoginAccess to find the company ID.
+    b. POST /employee/employment with body:
+       {"employee": {"id": EMP_ID}, "startDate": "YYYY-MM-01", "division": {"id": COMPANY_ID}}
        Use the 1st of the current month as startDate. Do NOT include "department" field.
-       CRITICAL: You MUST include "division" with the company ID! Without it, salary transactions will fail with "Arbeidsforholdet er ikke knyttet mot en virksomhet". The division ID is the same as the company ID from /company/>withLoginAccess. Division CANNOT be changed after creation!
+       CRITICAL: You MUST include "division"! Without it, salary transactions fail.
+  If POST /employee/employment fails with "Overlappende perioder" (overlapping periods):
+    The employee already has employment! GET /employee/employment?employeeId=EMP_ID to find it.
+    If that employment has division → you're fine, proceed to Step 3.
+    If no division → you may need to update the startDate or just proceed and hope it works.
 
 Step 2: Look up salary types.
   GET /salary/type — returns available salary types. Key types:
@@ -1104,6 +1141,45 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         result = ensure_bank_account(base_url, auth)
         print(f"  [pre] Bank account setup: {result}", flush=True)
 
+    # Pre-check for salary tasks: scan employees and their employment records
+    salary_keywords = ["lønn", "salary", "paie", "salario", "gehalt", "payroll", "salário", "lön"]
+    salary_pre_info = ""
+    if any(kw in prompt_for_kw for kw in salary_keywords):
+        print("  [pre] Salary task detected — scanning employees and employment...", flush=True)
+        try:
+            emp_resp = call_tripletex(base_url, auth, "GET", "/employee", params={"fields": "*"})
+            employees = emp_resp.get("values", [])
+            if employees:
+                salary_pre_info += f"\n\nPRE-SCANNED SANDBOX DATA (use this to save time):\nFound {len(employees)} existing employee(s):"
+                for emp in employees:
+                    eid = emp.get("id")
+                    salary_pre_info += f"\n  Employee id={eid}: {emp.get('firstName', '?')} {emp.get('lastName', '?')} (email={emp.get('email', 'none')})"
+                    # Check employment
+                    try:
+                        empl_resp = call_tripletex(base_url, auth, "GET", "/employee/employment",
+                            params={"employeeId": eid, "fields": "*"})
+                        empls = empl_resp.get("values", [])
+                        if empls:
+                            for empl in empls:
+                                div = empl.get("division", {})
+                                div_id = div.get("id") if div else None
+                                salary_pre_info += f"\n    Employment id={empl.get('id')}: startDate={empl.get('startDate')}, division.id={div_id}"
+                        else:
+                            salary_pre_info += "\n    NO employment record — you MUST create one with division!"
+                    except Exception:
+                        salary_pre_info += "\n    [could not check employment]"
+                # Also get company ID for division
+                try:
+                    co_resp = call_tripletex(base_url, auth, "GET", "/company/>withLoginAccess")
+                    companies = co_resp.get("values", [])
+                    if companies:
+                        salary_pre_info += f"\n  Company id={companies[0].get('id')} (use as division.id for employment)"
+                except Exception:
+                    pass
+                print(f"  [pre] Salary pre-scan complete: {len(employees)} employees found", flush=True)
+        except Exception as e:
+            print(f"  [pre] Salary pre-scan failed: {e}", flush=True)
+
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     today_year = today[:4]
     system_prompt = SYSTEM_PROMPT_TEMPLATE.replace("{today}", today).replace("{today_year}", today_year)
@@ -1111,7 +1187,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         {"role": "system", "content": system_prompt},
     ]
 
-    user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates."
+    user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates.{salary_pre_info}"
     vision_parts = []  # For image vision inputs
     if files:
         user_content += f"\n\nAttached files ({len(files)}):"
@@ -1576,6 +1652,20 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     except Exception as e:
                         print(f"    │  [fix] employment division auto-fix failed: {e}", flush=True)
 
+                # Auto-fix: employment startDate — use 1st of month to avoid overlap with existing
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
+                        and req_body):
+                    sd = req_body.get("startDate", "")
+                    # Force startDate to 1st of current month if not already
+                    if sd and not sd.endswith("-01"):
+                        new_sd = sd[:8] + "01"
+                        req_body["startDate"] = new_sd
+                        print(f"    │  [fix] employment startDate {sd} → {new_sd}", flush=True)
+                    # Remove department field if present (not accepted)
+                    if req_body.get("department"):
+                        req_body.pop("department")
+                        print(f"    │  [fix] removed department from employment POST", flush=True)
+
                 # Auto-fix: milestone product pricing — price should be ex-VAT
                 # If we tracked a fixedprice and now POST /product with price = fixedprice * fraction,
                 # the LLM likely forgot to divide by 1.25. Auto-correct.
@@ -1663,6 +1753,32 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                                  "not a supplier invoice entity. Check: amountGross (not amount), row >= 1, "
                                                  "date on each posting, supplier on credit posting.")
                         print(f"    │  [hint] injected retry guidance for /supplierInvoice", flush=True)
+
+                    # Auto-fix: employment overlap — GET existing employment and guide GPT
+                    if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
+                            and sc >= 400):
+                        overlap_msg = "; ".join(m.get("message", "") for m in result.get("validationMessages", []))
+                        emp_id_from_body = (req_body or {}).get("employee", {}).get("id")
+                        if ("overlappende" in overlap_msg.lower() or "overlap" in overlap_msg.lower()) and emp_id_from_body:
+                            print(f"    │  [auto-fix] employment overlap detected — fetching existing employment for employee {emp_id_from_body}", flush=True)
+                            try:
+                                emp_employment = call_tripletex(base_url, auth, "GET", "/employee/employment",
+                                    params={"employeeId": emp_id_from_body, "fields": "*"})
+                                existing_emps = emp_employment.get("values", [])
+                                if existing_emps:
+                                    existing = existing_emps[0]
+                                    has_div = bool(existing.get("division", {}).get("id")) if existing.get("division") else False
+                                    result["_employment_exists"] = True
+                                    result["_existing_employment"] = existing
+                                    result["_existing_has_division"] = has_div
+                                    result["_hint"] = (
+                                        f"Employee {emp_id_from_body} ALREADY HAS an employment record (id={existing.get('id')}). "
+                                        f"Division set: {has_div}. "
+                                        f"{'Proceed directly to creating salary transaction — the employment is ready.' if has_div else 'The employment has NO division. Try DELETE /employee/employment/' + str(existing.get('id')) + ' then create a new one with division.'}"
+                                    )
+                                    print(f"    │  [auto-fix] existing employment id={existing.get('id')}, division={has_div}", flush=True)
+                            except Exception as e:
+                                print(f"    │  [auto-fix] employment lookup failed: {e}", flush=True)
 
                 # Track fixed-price project creation + diagnostic GET-back
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/project"
@@ -1776,11 +1892,24 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 @app.get("/logs")
 async def list_logs():
-    """List log files from GCS (with local fallback)."""
+    """List log files from GCS, GitHub, or local fallback."""
     # Try GCS first
     gcs_logs = list_gcs_logs()
     if gcs_logs:
         return JSONResponse(sorted(gcs_logs, key=lambda x: x["name"], reverse=True))
+    # Try GitHub
+    if GITHUB_TOKEN:
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_LOG_PATH}"
+            headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                items = resp.json()
+                logs = [{"name": it["name"], "size": it.get("size", 0)} for it in items if it["name"].endswith(".log")]
+                if logs:
+                    return JSONResponse(sorted(logs, key=lambda x: x["name"], reverse=True))
+        except Exception:
+            pass
     # Fallback to local
     files = sorted(os.listdir(LOG_DIR), reverse=True)
     return JSONResponse([{"name": f, "size": os.path.getsize(os.path.join(LOG_DIR, f))} for f in files if f.endswith(".log")])
@@ -1788,13 +1917,25 @@ async def list_logs():
 
 @app.get("/logs/{filename}")
 async def get_log(filename: str):
-    """Download a specific log file from GCS (with local fallback)."""
+    """Download a specific log file from GCS, GitHub, or local fallback."""
     import pathlib
     safe = pathlib.PurePosixPath(filename).name
     # Try GCS first
     content = read_gcs_log(safe)
     if content:
         return PlainTextResponse(content)
+    # Try GitHub
+    if GITHUB_TOKEN:
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_LOG_PATH}/{safe}"
+            headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                import base64 as b64
+                gh_content = b64.b64decode(resp.json()["content"]).decode("utf-8")
+                return PlainTextResponse(gh_content)
+        except Exception:
+            pass
     # Fallback to local
     path = os.path.join(LOG_DIR, safe)
     if not os.path.isfile(path):
@@ -1909,6 +2050,11 @@ async def solve(request: Request):
             push_log_to_gcs(log_text, log_filename)
         except Exception as e:
             print(f"  ⚠ GCS log push failed: {e}", flush=True)
+        # Push to GitHub (fallback when GCS fails)
+        try:
+            push_log_to_github(log_text, log_filename)
+        except Exception as e:
+            print(f"  ⚠ GitHub log push failed: {e}", flush=True)
 
     return JSONResponse({
         "status": "completed" if diag.get("done") else "incomplete",
