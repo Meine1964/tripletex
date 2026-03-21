@@ -269,6 +269,12 @@ def validate_tool_call(method, path, body=None, params=None):
             if forbidden in str(val):
                 violations.append(f"[{rid}] {msg} ({p} contains '{forbidden}')")
 
+        # Reject specific field values (exact match)
+        for f, forbidden_val in rule.get("reject_field_values", {}).items():
+            val = _get_field(body, f)
+            if val is not None and val == forbidden_val:
+                violations.append(f"[{rid}] {msg} ({f}={val})")
+
     return violations
 
 # ── End Validation Rules Engine ─────────────────────────────────
