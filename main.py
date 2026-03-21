@@ -1082,7 +1082,8 @@ Step 1: If the task involves accounting dimensions (e.g. "Produktlinje", "Avdeli
      Pass the parent dimension as a QUERY PARAMETER: ?dimensionNameId=DIMENSION_ID
      Example: POST /ledger/accountingDimensionValue?dimensionNameId=822 with body {"displayName": "Basis"}
      CRITICAL: The value field is "displayName", NOT "name"! The parent link is a query param, NOT in the body!
-  d. If dimension creation keeps failing after 3 attempts, SKIP dimensions and create the voucher without them.
+  d. Note the dimensionIndex from the dimension name response (1, 2, or 3). You will use this to link values to postings.
+  e. If dimension creation keeps failing after 3 attempts, SKIP dimensions and create the voucher without them.
 
 Step 2: Look up ledger accounts if needed.
   GET /ledger/account — find account IDs for the account numbers mentioned in the task.
@@ -1107,7 +1108,12 @@ Step 3: Create the voucher.
   - Debit = positive amount, Credit = negative amount. Postings MUST sum to zero.
   - You MUST have at least 2 postings (one debit, one credit). A single posting is ALWAYS wrong!
   - Use account {"id": X} (look up IDs first with GET /ledger/account)
-  - If the task specifies a dimension, add to each posting: "accountingDimensionValue": {"id": VALUE_ID}
+  - If the task specifies a dimension/avdeling:
+    1. Create the dimension: POST /ledger/accountingDimensionName {"dimensionName": "NAME"} → note the dimensionIndex (1, 2, or 3)
+    2. Create the value: POST /ledger/accountingDimensionValue?dimensionNameId=ID {"displayName": "VALUE"}
+    3. On EACH posting, use: "freeAccountingDimension{dimensionIndex}": {"id": VALUE_ID}
+       Example for dimensionIndex=1: "freeAccountingDimension1": {"id": 19496}
+    DO NOT use "accountingDimensionValue" — the API rejects it!
 
 CRITICAL: POST /ledger/voucher uses JSON BODY! If you get "request body cannot be null" (422), you sent params instead of body. Fix by moving all data to the "body" field.
 
@@ -2065,7 +2071,56 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         if "vatType" not in p:
                             p["vatType"] = {"id": 0}
                             print(f"    │  [fix] voucher posting[{idx}]: added vatType={{id:0}}", flush=True)
-                        # Keep accountingDimensionValue if present — it IS supported on voucher postings
+                        # Auto-fix: accountingDimensionValue → freeAccountingDimension{1,2,3}
+                        # The Tripletex API does NOT accept "accountingDimensionValue" on postings.
+                        # The correct fields are freeAccountingDimension1/2/3, matching the dimension's dimensionIndex.
+                        if "accountingDimensionValue" in p:
+                            dim_val = p.pop("accountingDimensionValue")
+                            dim_val_id = dim_val.get("id") if isinstance(dim_val, dict) else dim_val
+                            if dim_val_id:
+                                # Look up dimension index for this value
+                                dim_idx = req_body.get("_dim_index")
+                                if not dim_idx:
+                                    try:
+                                        dv_resp = call_tripletex(base_url, auth, "GET",
+                                            f"/ledger/accountingDimensionValue/{dim_val_id}")
+                                        dv_data = dv_resp.get("value", {})
+                                        # dimensionIndex on the value is 0-based; look up the name's dimensionIndex
+                                        # We need the parent dimension's dimensionIndex (1,2,3)
+                                        # Try getting all dimension names to find which one owns this value
+                                        dn_resp = call_tripletex(base_url, auth, "GET",
+                                            "/ledger/accountingDimensionName")
+                                        for dn in dn_resp.get("values", []):
+                                            # Check if this dimension name owns this value
+                                            dv_list = call_tripletex(base_url, auth, "GET",
+                                                "/ledger/accountingDimensionValue",
+                                                params={"dimensionNameId": str(dn["id"])})
+                                            for dv in dv_list.get("values", []):
+                                                if dv.get("id") == dim_val_id:
+                                                    dim_idx = dn.get("dimensionIndex", 1)
+                                                    req_body["_dim_index"] = dim_idx
+                                                    break
+                                            if dim_idx:
+                                                break
+                                        if not dim_idx:
+                                            dim_idx = 1  # default to dimension 1
+                                    except Exception:
+                                        dim_idx = 1
+                                field_name = f"freeAccountingDimension{dim_idx}"
+                                p[field_name] = {"id": dim_val_id}
+                                print(f"    │  [fix] voucher posting[{idx}]: accountingDimensionValue → {field_name}={{id:{dim_val_id}}}", flush=True)
+                            else:
+                                print(f"    │  [fix] voucher posting[{idx}]: removed empty accountingDimensionValue", flush=True)
+                        # Also handle if someone uses accountingDimensionValues (plural) on the posting
+                        if "accountingDimensionValues" in p:
+                            p.pop("accountingDimensionValues")
+                            print(f"    │  [fix] voucher posting[{idx}]: removed invalid accountingDimensionValues from posting", flush=True)
+                    # Clean up voucher-level invalid dimension fields
+                    for bad_field in ("accountingDimensionValues", "accountingDimensionValue", "dimensions", "_dim_index", "_dimension_value_ids"):
+                        if bad_field in req_body:
+                            req_body.pop(bad_field)
+                            if not bad_field.startswith("_"):
+                                print(f"    │  [fix] voucher: removed invalid field '{bad_field}' from voucher body", flush=True)
 
                 # Auto-fix: POST /employee/employment/details — ensure employment ref + defaults
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment/details"
@@ -2383,8 +2438,24 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 # Overlay agent's desired changes
                                 _agent_fields = ("percentageOfFullTimeEquivalent", "annualSalary",
                                     "occupationCode", "date")
+                                # Check if the date itself caused the error — if so, keep existing date
+                                date_err = any("date" == (m.get("field") or "").lower()
+                                               for m in result.get("validationMessages", []))
+                                # Check for maritime errors early — needed for enum overlay decision
+                                maritime_err = any("maritime" in (m.get("field") or "").lower()
+                                                   for m in result.get("validationMessages", []))
                                 for k in _agent_fields:
                                     if k in req_body and req_body[k] is not None:
+                                        if k == "date" and date_err:
+                                            print(f"    │  [auto-fix] keeping existing date={base_body.get('date')} (agent's date rejected)", flush=True)
+                                            continue
+                                        base_body[k] = req_body[k]
+                                # Also overlay employment enums if agent set them and they're valid integers
+                                # But skip employmentType if maritime error exists (changing it triggers validation)
+                                for k in ("employmentType", "employmentForm", "remunerationType", "workingHoursScheme"):
+                                    if k in req_body and isinstance(req_body[k], int) and req_body[k] > 0:
+                                        if k == "employmentType" and maritime_err:
+                                            continue
                                         base_body[k] = req_body[k]
                                 # Parse validation messages for shiftDurationHours constraint
                                 for msg in result.get("validationMessages", []):
@@ -2396,9 +2467,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                             base_body["shiftDurationHours"] = float(m.group(1).replace(",", "."))
                                         else:
                                             base_body["shiftDurationHours"] = 35.5
-                                # Check for maritime errors — if required but not in existing, keep employmentType as-is
-                                maritime_err = any("maritime" in (m.get("field") or "").lower()
-                                                   for m in result.get("validationMessages", []))
+                                # Handle maritime errors — if required but not in existing, keep employmentType as-is
+                                # maritime_err already computed above
                                 if maritime_err:
                                     if existing_val.get("maritimeEmployment"):
                                         base_body["maritimeEmployment"] = existing_val["maritimeEmployment"]

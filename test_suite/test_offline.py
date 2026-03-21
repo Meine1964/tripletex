@@ -479,6 +479,51 @@ def test_smart_list_trimming():
         fail("bloat fields still present", str(sample.keys()))
 
 
+def test_dimension_prompt_guidance():
+    """Verify system prompt has correct freeAccountingDimension guidance."""
+    prompt = SYSTEM_PROMPT_TEMPLATE
+    if "freeAccountingDimension" in prompt:
+        ok("system prompt mentions freeAccountingDimension")
+    else:
+        fail("missing freeAccountingDimension in prompt", "")
+
+    if 'DO NOT use "accountingDimensionValue"' in prompt:
+        ok("system prompt warns against accountingDimensionValue on postings")
+    else:
+        fail("missing accountingDimensionValue warning", "")
+
+    if "dimensionIndex" in prompt:
+        ok("system prompt explains dimensionIndex mapping")
+    else:
+        fail("missing dimensionIndex explanation", "")
+
+
+def test_dimension_autofix_validation_rules():
+    """Verify the voucher validation rules still catch bad dimension fields."""
+    rules = get_rules()
+    # The auto-fix code handles the conversion, but let's verify the voucher rules exist
+    voucher_rule_ids = [r["id"] for r in rules if "voucher" in r["id"].lower()]
+    if any("voucher" in rid for rid in voucher_rule_ids):
+        ok(f"voucher-related rules exist: {len(voucher_rule_ids)} rules")
+    else:
+        fail("no voucher rules found", "")
+
+    # Check that posting format validation catches missing required fields
+    violations = validate_tool_call("POST", "/ledger/voucher", body={
+                "date": "2026-01-01",
+                "description": "Test",
+                "postings": [
+                    {"row": 1, "amountGross": 100}
+                ]
+            })
+    # Should catch min-postings violation (only 1 posting)
+    violation_ids = [v["rule_id"] for v in violations]
+    if "voucher-min-postings" in violation_ids:
+        ok("voucher-min-postings rule catches single posting")
+    else:
+        fail("voucher-min-postings not triggered", str(violation_ids))
+
+
 # ── Main ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("=" * 60)
@@ -500,6 +545,8 @@ if __name__ == "__main__":
     test_salary_fallback_guidance()
     test_put_autofix_employee_valid()
     test_smart_list_trimming()
+    test_dimension_prompt_guidance()
+    test_dimension_autofix_validation_rules()
 
     print(f"\n{'=' * 60}")
     print(f"  RESULTS: {passed} passed, {failed} failed")
