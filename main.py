@@ -585,7 +585,7 @@ Step 5: Configure employment details (percentage, annual salary, occupation code
     "employmentForm": 1,
     "remunerationType": 1,
     "workingHoursScheme": 1,
-    "percentOfFullTimeEquivalent": PERCENTAGE,
+    "percentageOfFullTimeEquivalent": PERCENTAGE,
     "annualSalary": ANNUAL_SALARY,
     "occupationCode": {"id": CODE_ID}
   }
@@ -597,7 +597,9 @@ Step 5: Configure employment details (percentage, annual salary, occupation code
   Use 1 for normal employment (ordinary, permanent, monthly pay, non-shift).
   IMPORTANT: Look up occupation codes first: GET /employee/employment/occupationCode?name=SEARCH_TERM
   If the API returns codes, use the best match. If not found, try without occupationCode.
-  percentOfFullTimeEquivalent = 100.0 for full time, 80.0 for 80%, etc.
+  percentageOfFullTimeEquivalent = 100.0 for full time, 80.0 for 80%, etc.
+  IMPORTANT: The field is "percentageOfFullTimeEquivalent" (NOT "percentOfFullTimeEquivalent" or "percent").
+  For MARITIME employmentType (2), maritimeEmployment.shipRegister and tradeArea are required — check existing details first with GET.
 
 Step 6: Configure standard work hours (if task mentions "standard hours"/"arbeidstid"/"horas de trabalho"/"heures de travail").
   POST /employee/standardTime with body:
@@ -1877,6 +1879,14 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 # Tripletex API requires integer values for these enums, but GET returns strings
                 if (args["method"] in ("PUT", "POST")
                         and "/employee/employment/details" in args["path"] and req_body):
+                    # Fix wrong field names for percentage of full-time equivalent
+                    for wrong_name in ("percentOfFullTimeEquivalent", "percent", "percentEmployed"):
+                        if wrong_name in req_body and "percentageOfFullTimeEquivalent" not in req_body:
+                            req_body["percentageOfFullTimeEquivalent"] = req_body.pop(wrong_name)
+                            print(f"    │  [fix] employment details: {wrong_name} → percentageOfFullTimeEquivalent", flush=True)
+                        elif wrong_name in req_body:
+                            req_body.pop(wrong_name)
+
                     _enum_maps = {
                         "employmentType": {"NOT_CHOSEN": 0, "ORDINARY": 1, "MARITIME": 2, "FREELANCE": 3, "CREATIVE": 4, "OFFICER": 5},
                         "remunerationType": {"NOT_CHOSEN": 0, "MONTHLY_PAY": 1, "HOURLY_PAY": 2, "COMMISSIONED": 3, "FEE": 4, "PIECEWORK_PAY": 5},
