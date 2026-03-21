@@ -66,46 +66,64 @@ class LogCapture:
         return self.buffer.getvalue()
 
 
-def push_log_to_github(log_text: str, filename: str):
-    """Push a log file to the GitHub repo with retry on conflict."""
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        print("  [log] GITHUB_TOKEN not set — skipping log push", flush=True)
-        return
+# ── GCS Log Storage ─────────────────────────────────────────────
+GCS_BUCKET = os.getenv("GCS_LOG_BUCKET", "tripletex-agent-logs")
+GCS_PREFIX = "Day_3/"  # prefix inside bucket
+_gcs_client = None
+
+def _get_gcs_bucket():
+    """Lazy-init GCS client and return bucket. Returns None if unavailable."""
+    global _gcs_client
     try:
-        content_b64 = base64.b64encode(log_text.encode("utf-8")).decode("ascii")
-        url = f"https://api.github.com/repos/Meine1964/tripletex/contents/test_suite/logs/Day_3/{filename}"
-        headers = {
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3+json",
-        }
-        data = {
-            "message": f"Auto-log: {filename}",
-            "content": content_b64,
-        }
-        max_retries = 8
-        for attempt in range(max_retries):
-            resp = requests.put(url, headers=headers, json=data, timeout=15)
-            if resp.status_code in (200, 201):
-                print(f"  [log] Pushed to GitHub: test_suite/logs/Day_3/{filename}", flush=True)
-                return
-            elif resp.status_code == 409:
-                # Conflict — another push moved the branch, wait with jitter and retry
-                import random
-                wait = 1 + attempt * 2 + random.uniform(0, 2)
-                print(f"  [log] GitHub 409 conflict, retry {attempt+1}/{max_retries} in {wait:.1f}s...", flush=True)
-                time.sleep(wait)
-                continue
-            elif resp.status_code == 422 and "sha" in resp.text.lower():
-                # File already exists (duplicate filename) — skip
-                print(f"  [log] File already exists, skipping: {filename}", flush=True)
-                return
-            else:
-                print(f"  [log] GitHub push failed: {resp.status_code} {resp.text[:200]}", flush=True)
-                return
-        print(f"  [log] GitHub push failed after {max_retries} retries: {filename}", flush=True)
+        from google.cloud import storage
+        if _gcs_client is None:
+            _gcs_client = storage.Client()
+        return _gcs_client.bucket(GCS_BUCKET)
     except Exception as e:
-        print(f"  [log] GitHub push error: {e}", flush=True)
+        print(f"  [gcs] GCS unavailable: {e}", flush=True)
+        return None
+
+def push_log_to_gcs(log_text: str, filename: str):
+    """Upload a log file to GCS. No concurrency conflicts."""
+    try:
+        bucket = _get_gcs_bucket()
+        if not bucket:
+            return
+        blob = bucket.blob(f"{GCS_PREFIX}{filename}")
+        blob.upload_from_string(log_text, content_type="text/plain")
+        print(f"  [gcs] Uploaded: gs://{GCS_BUCKET}/{GCS_PREFIX}{filename}", flush=True)
+    except Exception as e:
+        print(f"  [gcs] Upload failed: {e}", flush=True)
+
+def list_gcs_logs():
+    """List all log files in GCS bucket."""
+    try:
+        bucket = _get_gcs_bucket()
+        if not bucket:
+            return []
+        blobs = bucket.list_blobs(prefix=GCS_PREFIX)
+        return [{
+            "name": b.name.replace(GCS_PREFIX, ""),
+            "size": b.size,
+            "updated": b.updated.isoformat() if b.updated else None,
+        } for b in blobs if b.name.endswith(".log")]
+    except Exception as e:
+        print(f"  [gcs] List failed: {e}", flush=True)
+        return []
+
+def read_gcs_log(filename: str):
+    """Read a log file from GCS. Returns content string or None."""
+    try:
+        bucket = _get_gcs_bucket()
+        if not bucket:
+            return None
+        blob = bucket.blob(f"{GCS_PREFIX}{filename}")
+        if not blob.exists():
+            return None
+        return blob.download_as_text()
+    except Exception as e:
+        print(f"  [gcs] Read failed: {e}", flush=True)
+        return None
 
 # ── Validation Rules Engine ─────────────────────────────────────
 _RULES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules.yaml")
@@ -1653,16 +1671,26 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 @app.get("/logs")
 async def list_logs():
-    """List all local log files."""
+    """List log files from GCS (with local fallback)."""
+    # Try GCS first
+    gcs_logs = list_gcs_logs()
+    if gcs_logs:
+        return JSONResponse(sorted(gcs_logs, key=lambda x: x["name"], reverse=True))
+    # Fallback to local
     files = sorted(os.listdir(LOG_DIR), reverse=True)
     return JSONResponse([{"name": f, "size": os.path.getsize(os.path.join(LOG_DIR, f))} for f in files if f.endswith(".log")])
 
 
 @app.get("/logs/{filename}")
 async def get_log(filename: str):
-    """Download a specific log file."""
+    """Download a specific log file from GCS (with local fallback)."""
     import pathlib
     safe = pathlib.PurePosixPath(filename).name
+    # Try GCS first
+    content = read_gcs_log(safe)
+    if content:
+        return PlainTextResponse(content)
+    # Fallback to local
     path = os.path.join(LOG_DIR, safe)
     if not os.path.isfile(path):
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -1771,11 +1799,11 @@ async def solve(request: Request):
             print(f"  ✓ Log saved locally: {log_filename}", flush=True)
         except Exception as e:
             print(f"  ⚠ Local log save failed: {e}", flush=True)
-        # Also push to GitHub (best-effort)
+        # Push to GCS (best-effort, no concurrency conflicts)
         try:
-            push_log_to_github(log_text, log_filename)
+            push_log_to_gcs(log_text, log_filename)
         except Exception as e:
-            print(f"  ⚠ GitHub log push failed: {e}", flush=True)
+            print(f"  ⚠ GCS log push failed: {e}", flush=True)
 
     return JSONResponse({
         "status": "completed" if diag.get("done") else "incomplete",
