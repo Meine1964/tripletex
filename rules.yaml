@@ -668,19 +668,6 @@ rules:
       'month' on POST /salary/transaction must be a number (1-12),
       not a string.
 
-  # ── Employee PUT needs id + version ───────────────────────────
-  - id: employee-put-id-version
-    description: "PUT /employee needs id and version in body"
-    when:
-      method: PUT
-      path_pattern: "^/employee/\\d+$"
-    require_fields:
-      - id
-      - version
-    message: >
-      PUT /employee requires 'id' and 'version' in the body. First GET
-      the employee to find the current version number.
-
   # ── Travel Expense: travelDetails with dates ──────────────────
   - id: travel-expense-traveldetails
     description: "POST /travelExpense should include travelDetails"
@@ -738,19 +725,6 @@ rules:
     message: >
       invoiceDueDate must be in YYYY-MM-DD format (e.g. 2026-04-04).
 
-  # ── Project PUT needs id + version ────────────────────────────
-  - id: project-put-id-version
-    description: "PUT /project needs id and version in body"
-    when:
-      method: PUT
-      path_pattern: "^/project/\\d+$"
-    require_fields:
-      - id
-      - version
-    message: >
-      PUT /project requires 'id' and 'version' in the body. First GET
-      the project to find the current version number.
-
   # ── Supplier Invoice: postings must use amountGross ──────────
   # Note: auto-fix in main.py renames amount→amountGross automatically.
   # This rule reminds GPT in case the auto-fix ever misses it.
@@ -769,18 +743,6 @@ rules:
     message: >
       POST /employee/employment/details requires employment.id and date.
       First GET /employee/employment to find the employment ID.
-
-  - id: employment-details-put-id-version
-    description: "PUT /employee/employment/details needs id and version"
-    when:
-      method: PUT
-      path_pattern: "^/employee/employment/details/\\d+$"
-    require_fields:
-      - id
-      - version
-    message: >
-      PUT /employee/employment/details requires 'id' and 'version' in body.
-      First GET the details to find current version.
 
   # ── Standard Time ─────────────────────────────────────────────
   - id: standardtime-required
@@ -852,32 +814,6 @@ rules:
     message: >
       Do NOT set 'costExcludingVatCurrency' on products. Only use
       'priceExcludingVatCurrency' for the selling price.
-
-  # ── Customer PUT needs id + version ───────────────────────────
-  - id: customer-put-id-version
-    description: "PUT /customer needs id and version in body"
-    when:
-      method: PUT
-      path_pattern: "^/customer/\\d+$"
-    require_fields:
-      - id
-      - version
-    message: >
-      PUT /customer requires 'id' and 'version' in the body. First GET
-      the customer to find the current version number.
-
-  # ── Supplier PUT needs id + version ───────────────────────────
-  - id: supplier-put-id-version
-    description: "PUT /supplier needs id and version in body"
-    when:
-      method: PUT
-      path_pattern: "^/supplier/\\d+$"
-    require_fields:
-      - id
-      - version
-    message: >
-      PUT /supplier requires 'id' and 'version' in the body. First GET
-      the supplier to find the current version number.
 
   # ── Accounting Dimension Name ─────────────────────────────────
   - id: dimension-name-field
@@ -981,18 +917,6 @@ rules:
     message: >
       Wrong endpoint! /invoice/:createFromOrder does not exist. Use POST
       /invoice with body {"invoiceDate":"...","invoiceDueDate":"...","orders":[{"id":X}]}.
-
-  # ── Employee employment PUT needs id + version ────────────────
-  - id: employment-put-id-version
-    description: "PUT /employee/employment needs id and version"
-    when:
-      method: PUT
-      path_pattern: "^/employee/employment/\\d+$"
-    require_fields:
-      - id
-      - version
-    message: >
-      PUT /employee/employment requires 'id' and 'version' in the body.
 
   # ── Block POST to company (use PUT) ──────────────────────────
   - id: block-post-company
