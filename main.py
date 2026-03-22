@@ -1212,6 +1212,13 @@ Step 3: Create the voucher.
   - Each posting MUST have a "date" field matching the voucher date
   - Debit = positive amount, Credit = negative amount. Postings MUST sum to zero.
   - You MUST have at least 2 postings (one debit, one credit). A single posting is ALWAYS wrong!
+  - CRITICAL: Row 1 and Row 2 MUST use DIFFERENT accounts! NEVER post debit and credit to the SAME account — it nets to zero!
+    If the task only mentions ONE account, you MUST choose an appropriate contra account:
+    * Expense accounts (4000-7999): debit the expense account, credit 1920 (Bankinnskudd/bank) as contra
+    * Revenue accounts (3000-3999): debit 1920 (bank), credit the revenue account
+    * Asset accounts (1000-1999): debit the asset account, credit 2400 (Leverandørgjeld) or 1920 (bank)
+    * Liability accounts (2000-2999): debit 1920 (bank), credit the liability account
+    Example: task says "post 32550 on account 7000" → debit 7000 (+32550), credit 1920 (-32550)
   - Use account {"id": X} (look up IDs first with GET /ledger/account)
   - If the task specifies a dimension/avdeling:
     1. Create the dimension: POST /ledger/accountingDimensionName {"dimensionName": "NAME"} → note the dimensionIndex (1, 2, or 3)
@@ -3055,26 +3062,65 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             )
                             print(f"    │  [hint] project manager {pm_id} needs access — injected guidance", flush=True)
 
-                # Auto-fix: division.id error on POST /employee/employment — try without division
+                # Auto-fix: division.id error on POST /employee/employment — try existing division first
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
                         and sc == 422 and req_body):
                     div_error = any("division" in (m.get("field", "") or "")
                                     for m in (result.get("validationMessages") or []))
                     if div_error and req_body.get("division"):
-                        # Retry without division — some sandboxes don't support it
-                        print(f"    │  [auto-fix] division.id rejected — retrying without division", flush=True)
-                        retry_body = {k: v for k, v in req_body.items() if k != "division"}
-                        retry_result = call_tripletex(base_url, auth, "POST", "/employee/employment", body=retry_body)
-                        retry_sc = retry_result.get("_status_code", 200)
-                        if retry_sc < 400:
-                            result = retry_result
-                            sc = retry_sc
-                            print(f"    │  [auto-fix] employment created without division OK", flush=True)
+                        # Strategy: find a valid division from existing employments
+                        found_div = None
+                        try:
+                            emp_list = call_tripletex(base_url, auth, "GET", "/employee", params={"fields": "id"})
+                            for emp_item in (emp_list.get("values") or []):
+                                empl_list = call_tripletex(base_url, auth, "GET", "/employee/employment",
+                                    params={"employeeId": emp_item["id"], "fields": "division"})
+                                for empl_item in (empl_list.get("values") or []):
+                                    ediv = empl_item.get("division")
+                                    if ediv and ediv.get("id") and ediv["id"] != req_body["division"].get("id"):
+                                        found_div = ediv["id"]
+                                        break
+                                if found_div:
+                                    break
+                        except Exception:
+                            pass
+                        if found_div:
+                            print(f"    │  [auto-fix] division.id rejected — trying division from existing employment: {found_div}", flush=True)
+                            req_body["division"] = {"id": found_div}
+                            retry_result = call_tripletex(base_url, auth, "POST", "/employee/employment", body=req_body)
+                            retry_sc = retry_result.get("_status_code", 200)
+                            if retry_sc < 400:
+                                result = retry_result
+                                sc = retry_sc
+                                print(f"    │  [auto-fix] employment created with division {found_div} OK", flush=True)
+                            else:
+                                # Fall back to no division
+                                print(f"    │  [auto-fix] division {found_div} also failed — retrying without division", flush=True)
+                                retry_body = {k: v for k, v in req_body.items() if k != "division"}
+                                retry_result = call_tripletex(base_url, auth, "POST", "/employee/employment", body=retry_body)
+                                retry_sc = retry_result.get("_status_code", 200)
+                                if retry_sc < 400:
+                                    result = retry_result
+                                    sc = retry_sc
+                                    print(f"    │  [auto-fix] employment created without division OK", flush=True)
+                                else:
+                                    result = retry_result
+                                    sc = retry_sc
+                                    print(f"    │  [auto-fix] all division attempts failed: {retry_sc}", flush=True)
                         else:
-                            # Show the retry result to GPT so it sees the actual failure reason
-                            result = retry_result
-                            sc = retry_sc
-                            print(f"    │  [auto-fix] retry without division also failed: {retry_sc}", flush=True)
+                            # No alternative division found, retry without
+                            print(f"    │  [auto-fix] division.id rejected — no alternative found, retrying without division", flush=True)
+                            retry_body = {k: v for k, v in req_body.items() if k != "division"}
+                            retry_result = call_tripletex(base_url, auth, "POST", "/employee/employment", body=retry_body)
+                            retry_sc = retry_result.get("_status_code", 200)
+                            if retry_sc < 400:
+                                result = retry_result
+                                sc = retry_sc
+                                print(f"    │  [auto-fix] employment created without division OK", flush=True)
+                            else:
+                                result = retry_result
+                                sc = retry_sc
+                                print(f"    │  [auto-fix] retry without division also failed: {retry_sc}", flush=True)
 
                 # Track fixed-price project creation + diagnostic GET-back
                 if (args["method"] in ("POST", "PUT") and re.match(r'^/project(/\d+)?$', args["path"].rstrip("/"))
