@@ -2434,15 +2434,40 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     req_body[field] = _safe_defaults.get(field, 1)
                                     print(f"    │  [fix] employment details {field}: '{val}' → {req_body[field]} (default)", flush=True)
 
-                # Auto-fix: shiftDurationHours — always include 35.5 (API requires this exact value)
-                if (args["method"] in ("PUT", "POST")
+                # Auto-fix: PUT /employee/employment/details — preserve existing date & shiftDurationHours
+                # Tripletex silently ignores enum changes if you change the date or shiftDurationHours
+                if (args["method"] == "PUT"
+                        and "/employee/employment/details" in args["path"] and req_body):
+                    _det_id = req_body.get("id")
+                    if not _det_id:
+                        _pm = re.search(r"/employee/employment/details/(\d+)", args["path"])
+                        if _pm:
+                            _det_id = int(_pm.group(1))
+                    if _det_id:
+                        try:
+                            _existing = call_tripletex(base_url, auth, "GET",
+                                f"/employee/employment/details/{_det_id}")
+                            _ev = _existing.get("value", _existing)
+                            if _ev.get("date"):
+                                _old_date = req_body.get("date")
+                                req_body["date"] = _ev["date"]
+                                if _old_date and _old_date != _ev["date"]:
+                                    print(f"    │  [fix] employment details: preserving existing date={_ev['date']} (agent sent {_old_date})", flush=True)
+                            _ex_shift = _ev.get("shiftDurationHours", 0)
+                            if _ex_shift:
+                                req_body["shiftDurationHours"] = _ex_shift
+                            else:
+                                req_body.pop("shiftDurationHours", None)
+                                print(f"    │  [fix] employment details: removed shiftDurationHours (existing=0)", flush=True)
+                        except Exception as e:
+                            print(f"    │  [fix] employment details: could not fetch existing: {e}", flush=True)
+
+                # Auto-fix: shiftDurationHours — include on POST only (PUT preserves existing above)
+                if (args["method"] == "POST"
                         and "/employee/employment/details" in args["path"] and req_body):
                     if "shiftDurationHours" not in req_body:
                         req_body["shiftDurationHours"] = 35.5
                         print(f"    │  [fix] employment details: added shiftDurationHours=35.5", flush=True)
-                    elif req_body["shiftDurationHours"] != 35.5:
-                        print(f"    │  [fix] employment details: shiftDurationHours {req_body['shiftDurationHours']} → 35.5", flush=True)
-                        req_body["shiftDurationHours"] = 35.5
 
                 # Auto-fix: POST /activity — ensure activityType + strip invalid 'project' field
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/activity" and req_body):
@@ -2624,6 +2649,52 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     sc = result.get("_status_code", 200)
                             except Exception as e:
                                 print(f"    │  [auto-fix] version conflict retry failed: {e}", flush=True)
+
+                # Post-call check: employment details PUT succeeded but enums still NOT_CHOSEN
+                if (args["method"] == "PUT"
+                        and "/employee/employment/details" in args["path"]
+                        and sc < 400 and req_body):
+                    _rv = result.get("value", result)
+                    _not_chosen_fields = []
+                    _enum_names = ("employmentType", "employmentForm", "remunerationType", "workingHoursScheme")
+                    for _ef in _enum_names:
+                        _rval = _rv.get(_ef)
+                        if _rval == "NOT_CHOSEN" or _rval == 0:
+                            _sent = req_body.get(_ef)
+                            if isinstance(_sent, int) and _sent > 0:
+                                _not_chosen_fields.append(_ef)
+                    if _not_chosen_fields:
+                        print(f"    │  [auto-fix] employment details PUT succeeded but {_not_chosen_fields} still NOT_CHOSEN — retrying", flush=True)
+                        # Build retry body from API response + our desired enums
+                        _retry = {"id": _rv.get("id"), "version": _rv.get("version", 0),
+                                  "employment": _rv.get("employment") or req_body.get("employment"),
+                                  "date": _rv.get("date")}
+                        for _ef in _enum_names:
+                            _sent = req_body.get(_ef)
+                            if isinstance(_sent, int) and _sent > 0:
+                                _retry[_ef] = _sent
+                            else:
+                                # Use safe default
+                                _defaults = {"employmentType": 1, "employmentForm": 2, "remunerationType": 2, "workingHoursScheme": 1}
+                                _retry[_ef] = _defaults.get(_ef, 1)
+                        # Preserve existing shiftDurationHours
+                        _ex_sh = _rv.get("shiftDurationHours", 0)
+                        if _ex_sh:
+                            _retry["shiftDurationHours"] = _ex_sh
+                        _det_path = args["path"]
+                        _retry_r = call_tripletex(base_url, auth, "PUT", _det_path, body=_retry)
+                        _retry_sc = _retry_r.get("_status_code", 200)
+                        if _retry_sc < 400:
+                            _rv2 = _retry_r.get("value", _retry_r)
+                            _still_nc = any(_rv2.get(f) in ("NOT_CHOSEN", 0) for f in _enum_names)
+                            if _still_nc:
+                                print(f"    │  [auto-fix] enum retry still NOT_CHOSEN — API may not support enum updates on this record", flush=True)
+                            else:
+                                result = _retry_r
+                                sc = _retry_sc
+                                print(f"    │  [auto-fix] enum retry succeeded! Enums now set correctly", flush=True)
+                        else:
+                            print(f"    │  [auto-fix] enum retry failed: {_retry_sc}", flush=True)
 
                 call_info = f"{args['method']} {args['path']} -> {sc}"
                 diag["api_calls"].append(call_info)
@@ -2876,7 +2947,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                         if not put_body.get(fld):
                                             put_body[fld] = default
                                             print(f"    │  [auto-fix] POST→PUT: {fld}=0 → {default}", flush=True)
-                                    put_body["shiftDurationHours"] = 35.5
+                                    put_body.setdefault("shiftDurationHours", existing_val.get("shiftDurationHours", 0) or 0)
                                     retry_result = call_tripletex(base_url, auth, "PUT",
                                         f"/employee/employment/details/{det_id}", body=put_body)
                                     retry_sc = retry_result.get("_status_code", 200)
