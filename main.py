@@ -333,7 +333,7 @@ KEY ENDPOINTS:
 - GET/POST /employee — firstName, lastName, email
 - PUT /employee/{id} — update (include id + version). Can also set department: {"department": {"id": DEPT_ID}}
 - GET/POST /employee/employment — employment records for an employee. GET ?employeeId=X&fields=*
-- GET/POST/PUT /employee/employment/details — employment details (annualSalary, percentOfFullTimeEquivalent, occupationCode, workingHoursScheme). CRITICAL: enum fields (employmentType, remunerationType, employmentForm, workingHoursScheme) require INTEGER values: 1=ORDINARY/PERMANENT/MONTHLY_PAY/NON_SHIFT
+- GET/POST/PUT /employee/employment/details — employment details (annualSalary, percentOfFullTimeEquivalent, occupationCode, workingHoursScheme). CRITICAL: enum fields (employmentType, remunerationType, employmentForm, workingHoursScheme) require INTEGER values: 1=ORDINARY, 2=PERMANENT, 2=MONTHLY_PAY, 1=NON_SHIFT
 - GET /employee/employment/occupationCode — lookup occupation codes (use ?name=SEARCH_TERM)
 - POST /employee/standardTime — set standard work hours: {employee:{id}, hoursPerDay: 7.5, fromDate: "YYYY-MM-DD"} (fromDate is REQUIRED!)
 - GET/POST /customer — name, email, invoiceEmail, overdueNoticeEmail, isCustomer:true, organizationNumber, phoneNumber, physicalAddress:{addressLine1, postalCode, city}, postalAddress:{addressLine1, postalCode, city}
@@ -696,10 +696,10 @@ Step 5: Configure employment details (percentage, annual salary, occupation code
   }
   CRITICAL: These enum fields require INTEGER values (not strings like "ORDINARY"!):
     employmentType: 0=NOT_CHOSEN, 1=ORDINARY, 2=MARITIME, 3=FREELANCE
-    remunerationType: 0=NOT_CHOSEN, 1=MONTHLY_PAY, 2=HOURLY_PAY, 3=COMMISSIONED, 4=FEE
-    employmentForm: 0=NOT_CHOSEN, 1=PERMANENT, 2=TEMPORARY
+    remunerationType: 0=NOT_CHOSEN, 1=HOURLY_PAY, 2=MONTHLY_PAY, 3=COMMISSIONED, 4=FEE
+    employmentForm: 0=NOT_CHOSEN, 1=TEMPORARY, 2=PERMANENT
     workingHoursScheme: 0=NOT_CHOSEN, 1=NON_SHIFT, 2=ROUND_THE_CLOCK
-  Use 1 for normal employment (ordinary, permanent, monthly pay, non-shift).
+  Use these for normal salaried employment: employmentType=1, employmentForm=2, remunerationType=2, workingHoursScheme=1.
   IMPORTANT: Do NOT include occupationCode unless the task explicitly requires it! It often causes validation errors.
   If the task does require an occupation code: GET /employee/employment/occupationCode?name=SEARCH_TERM (e.g. ?name=utvikler, ?name=konsulent).
   NEVER fetch ALL occupation codes — there are 7000+! Always filter with ?name=.
@@ -887,14 +887,14 @@ Step 4: Add each expense as a cost line.
   Create one cost line per expense (plane ticket, taxi, hotel, etc.).
   Match costCategory by EXACT description: "Fly" for plane, "Taxi" for taxi, "Hotell" for hotel, "Tog" for train, "Buss" for bus.
 
-Step 5: Add per diem compensation (if task mentions daily allowance/dietas/diett).
-  GET /travelExpense/rateCategory — returns many categories. Pick the ONE matching your trip type:
-    - Multi-day trip with overnight stay: pick name = "Overnatting over 12 timer - innland"
-    - Day trip over 12 hours: pick name = "Dagsreise over 12 timer - innland"
-    - Day trip 9-12 hours: pick name = "Dagsreise 9-12 timer - innland"
-    - Day trip 5-9 hours: pick name = "Dagsreise 5-9 timer - innland"
-    - Foreign travel: pick name containing "utland" matching the trip duration.
-  Just search by name — the system auto-applies the correct rate for your travel dates.
+Step 5: Add per diem compensation (if task mentions daily allowance/dietas/diett/indemnités journalières/Tagegeld).
+  GET /travelExpense/rateCategory — the response is auto-filtered to current-year domestic entries.
+  Pick the ONE matching your trip type by NAME:
+    - Multi-day trip with overnight stay: pick name containing "Overnatting over 12 timer"
+    - Day trip over 12 hours: pick name containing "Dagsreise over 12 timer"
+    - Day trip 9-12 hours: pick name containing "Dagsreise 9-12 timer"
+    - Day trip 5-9 hours: pick name containing "Dagsreise 5-9 timer"
+  IMPORTANT: Pick from the returned list — don't guess IDs. The system auto-selects the correct year.
   POST /travelExpense/perDiemCompensation with:
   {
     "travelExpense": {"id": TE_ID},
@@ -903,9 +903,10 @@ Step 5: Add per diem compensation (if task mentions daily allowance/dietas/diett
     "overnightAccommodation": "HOTEL" or "NONE",
     "count": NUMBER_OF_DAYS
   }
-  overnightAccommodation: use "HOTEL" for trips with hotel/overnight, "NONE" for day trips.
+  overnightAccommodation: use "HOTEL" for multi-day trips with hotel/overnight, "NONE" for day trips.
   count: number of days (e.g. 3 for a 3-day trip).
-  If the API-calculated rate differs from the task amount, that's OK — Norwegian tax rules set the rate.
+  IMPORTANT: The per diem rate is set by Norwegian tax rules, NOT by the task. If the task says "800 NOK/day",
+  just add the per diem normally — the system calculates the correct rate. Do NOT try to match the task amount exactly.
 
 Step 6: Call done().
 
@@ -2260,11 +2261,11 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         req_body["employmentType"] = 1  # ORDINARY
                         print(f"    │  [fix] employment details: added employmentType=1 (ORDINARY)", flush=True)
                     if "employmentForm" not in req_body:
-                        req_body["employmentForm"] = 1  # PERMANENT
-                        print(f"    │  [fix] employment details: added employmentForm=1 (PERMANENT)", flush=True)
+                        req_body["employmentForm"] = 2  # PERMANENT
+                        print(f"    │  [fix] employment details: added employmentForm=2 (PERMANENT)", flush=True)
                     if "remunerationType" not in req_body:
-                        req_body["remunerationType"] = 1  # MONTHLY_PAY
-                        print(f"    │  [fix] employment details: added remunerationType=1 (MONTHLY_PAY)", flush=True)
+                        req_body["remunerationType"] = 2  # MONTHLY_PAY
+                        print(f"    │  [fix] employment details: added remunerationType=2 (MONTHLY_PAY)", flush=True)
                     if "workingHoursScheme" not in req_body:
                         req_body["workingHoursScheme"] = 1  # NON_SHIFT
                         print(f"    │  [fix] employment details: added workingHoursScheme=1 (NON_SHIFT)", flush=True)
@@ -2289,9 +2290,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
                     _enum_maps = {
                         "employmentType": {"NOT_CHOSEN": 0, "ORDINARY": 1, "MARITIME": 2, "FREELANCE": 3, "CREATIVE": 4, "OFFICER": 5},
-                        "remunerationType": {"NOT_CHOSEN": 0, "MONTHLY_PAY": 1, "HOURLY_PAY": 2, "COMMISSIONED": 3, "FEE": 4, "PIECEWORK_PAY": 5},
-                        "employmentForm": {"NOT_CHOSEN": 0, "PERMANENT": 1, "TEMPORARY": 2},
-                        "workingHoursScheme": {"NOT_CHOSEN": 0, "NON_SHIFT": 1, "ROUND_THE_CLOCK": 2, "SHIFT_365": 3, "OFFSHORE_336": 4, "CONTINUOUS": 5, "OTHER_SHIFT": 6},
+                        "remunerationType": {"NOT_CHOSEN": 0, "HOURLY_PAY": 1, "HOURLY_WAGE": 1, "MONTHLY_PAY": 2, "COMMISSIONED": 3, "FEE": 4, "PIECEWORK_PAY": 5},
+                        "employmentForm": {"NOT_CHOSEN": 0, "TEMPORARY": 1, "PERMANENT": 2},
+                        "workingHoursScheme": {"NOT_CHOSEN": 0, "NON_SHIFT": 1, "NOT_SHIFT": 1, "ROUND_THE_CLOCK": 2, "SHIFT_365": 3, "OFFSHORE_336": 4, "CONTINUOUS": 5, "OTHER_SHIFT": 6},
                     }
                     for field, mapping in _enum_maps.items():
                         val = req_body.get(field)
@@ -2310,8 +2311,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                         matched = True
                                         break
                                 if not matched:
-                                    req_body[field] = 1  # Safe default
-                                    print(f"    │  [fix] employment details {field}: '{val}' → 1 (default)", flush=True)
+                                    # Safe defaults: ORDINARY(1), PERMANENT(2), MONTHLY_PAY(2), NON_SHIFT(1)
+                                    _safe_defaults = {"employmentType": 1, "employmentForm": 2, "remunerationType": 2, "workingHoursScheme": 1}
+                                    req_body[field] = _safe_defaults.get(field, 1)
+                                    print(f"    │  [fix] employment details {field}: '{val}' → {req_body[field]} (default)", flush=True)
 
                 # Auto-fix: shiftDurationHours — always include 35.5 (API requires this exact value)
                 if (args["method"] in ("PUT", "POST")
@@ -2612,9 +2615,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 # Convert string enums to integers in base
                                 _em = {
                                     "employmentType": {"NOT_CHOSEN": 0, "ORDINARY": 1, "MARITIME": 2, "FREELANCE": 3, "CREATIVE": 4, "OFFICER": 5},
-                                    "remunerationType": {"NOT_CHOSEN": 0, "MONTHLY_PAY": 1, "HOURLY_PAY": 2, "COMMISSIONED": 3, "FEE": 4, "PIECEWORK_PAY": 5},
-                                    "employmentForm": {"NOT_CHOSEN": 0, "PERMANENT": 1, "TEMPORARY": 2},
-                                    "workingHoursScheme": {"NOT_CHOSEN": 0, "NON_SHIFT": 1, "ROUND_THE_CLOCK": 2, "SHIFT_365": 3, "OFFSHORE_336": 4, "CONTINUOUS": 5, "OTHER_SHIFT": 6},
+                                    "remunerationType": {"NOT_CHOSEN": 0, "HOURLY_PAY": 1, "HOURLY_WAGE": 1, "MONTHLY_PAY": 2, "COMMISSIONED": 3, "FEE": 4, "PIECEWORK_PAY": 5},
+                                    "employmentForm": {"NOT_CHOSEN": 0, "TEMPORARY": 1, "PERMANENT": 2},
+                                    "workingHoursScheme": {"NOT_CHOSEN": 0, "NON_SHIFT": 1, "NOT_SHIFT": 1, "ROUND_THE_CLOCK": 2, "SHIFT_365": 3, "OFFSHORE_336": 4, "CONTINUOUS": 5, "OTHER_SHIFT": 6},
                                 }
                                 for fld, mapping in _em.items():
                                     if isinstance(base_body.get(fld), str):
@@ -2714,9 +2717,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     # Build minimal PUT body from existing + agent's desired changes
                                     _em = {
                                         "employmentType": {"NOT_CHOSEN": 0, "ORDINARY": 1, "MARITIME": 2, "FREELANCE": 3},
-                                        "remunerationType": {"NOT_CHOSEN": 0, "MONTHLY_PAY": 1, "HOURLY_PAY": 2, "COMMISSIONED": 3, "FEE": 4},
-                                        "employmentForm": {"NOT_CHOSEN": 0, "PERMANENT": 1, "TEMPORARY": 2},
-                                        "workingHoursScheme": {"NOT_CHOSEN": 0, "NON_SHIFT": 1, "ROUND_THE_CLOCK": 2},
+                                        "remunerationType": {"NOT_CHOSEN": 0, "HOURLY_PAY": 1, "HOURLY_WAGE": 1, "MONTHLY_PAY": 2, "COMMISSIONED": 3, "FEE": 4},
+                                        "employmentForm": {"NOT_CHOSEN": 0, "TEMPORARY": 1, "PERMANENT": 2},
+                                        "workingHoursScheme": {"NOT_CHOSEN": 0, "NON_SHIFT": 1, "NOT_SHIFT": 1, "ROUND_THE_CLOCK": 2},
                                     }
                                     put_body = {"id": det_id, "version": existing_val.get("version", 0),
                                                 "employment": {"id": employment_id},
@@ -2933,28 +2936,52 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         else:
                             print(f"    │  [auto-fix] employee rename failed: {rename_sc}", flush=True)
 
-                # Auto-filter: rateCategory responses — only keep common useful types
+                # Auto-filter: rateCategory responses — only keep current-year domestic entries
                 if (isinstance(result, dict) and "values" in result
                         and isinstance(result["values"], list)
                         and args["path"].rstrip("/").endswith("/rateCategory")
                         and len(result["values"]) > 50):
                     _orig_count = len(result["values"])
+                    _current_year = today[:4]  # e.g. "2026"
                     # Keep only PER_DIEM and ACCOMMODATION_ALLOWANCE types (skip MILEAGE etc.)
                     _useful_types = {"PER_DIEM", "ACCOMMODATION_ALLOWANCE"}
                     _filtered = [v for v in result["values"]
                                  if isinstance(v, dict) and v.get("type") in _useful_types]
-                    # Further filter: keep only "innland" (domestic) categories
-                    _domestic = [v for v in _filtered if "innland" in v.get("name", "").lower()]
-                    if _domestic:
-                        result["values"] = _domestic
-                        result["fullResultSize"] = len(_domestic)
-                        result["_note"] = f"Filtered from {_orig_count} to {len(_domestic)} domestic per-diem/accommodation entries. Pick by name matching trip type."
-                        print(f"    \u2502  [filter] rateCategory: {_orig_count} \u2192 {len(_domestic)} domestic entries", flush=True)
+                    # Try to find current-year domestic categories
+                    _current_domestic = []
+                    for v in _filtered:
+                        _n = (v.get("name") or "").lower()
+                        _fd = v.get("fromDate") or ""
+                        _td = v.get("toDate") or ""
+                        # Current year: fromDate starts with current year, or no toDate / toDate >= current year
+                        _is_current = (_fd.startswith(_current_year) or
+                                       (_td == "" or _td is None or _td >= _current_year) and _fd != "")
+                        _is_domestic = ("innland" in _n or "domestic" in _n or
+                                        v.get("isValidDomestic") == True)
+                        if _is_current and _is_domestic:
+                            _current_domestic.append(v)
+                    # Fallback: just domestic (any year)
+                    if not _current_domestic:
+                        _current_domestic = [v for v in _filtered
+                                             if "innland" in (v.get("name") or "").lower()
+                                             or v.get("isValidDomestic") == True]
+                    # Fallback: just current year
+                    if not _current_domestic:
+                        _current_domestic = [v for v in _filtered
+                                             if (v.get("fromDate") or "").startswith(_current_year)]
+                    if _current_domestic:
+                        result["values"] = _current_domestic
+                        result["fullResultSize"] = len(_current_domestic)
+                        result["count"] = len(_current_domestic)
+                        result["_note"] = f"Filtered from {_orig_count} to {len(_current_domestic)} relevant domestic entries. Pick by name matching trip type."
+                        print(f"    │  [filter] rateCategory: {_orig_count} → {len(_current_domestic)} current domestic entries", flush=True)
                     elif _filtered:
+                        # Last resort: keep only useful types but still large
                         result["values"] = _filtered
                         result["fullResultSize"] = len(_filtered)
+                        result["count"] = len(_filtered)
                         result["_note"] = f"Filtered from {_orig_count} to {len(_filtered)} per-diem/accommodation entries."
-                        print(f"    \u2502  [filter] rateCategory: {_orig_count} \u2192 {len(_filtered)} entries", flush=True)
+                        print(f"    │  [filter] rateCategory: {_orig_count} → {len(_filtered)} entries (no domestic match)", flush=True)
 
                 result_str = json.dumps(result, ensure_ascii=False)
                 # Smart trimming: for large list responses, condense values to key fields
