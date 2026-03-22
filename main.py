@@ -275,6 +275,26 @@ def validate_tool_call(method, path, body=None, params=None):
             if val is not None and val == forbidden_val:
                 violations.append(f"[{rid}] {msg} ({f}={val})")
 
+    # ── Hard-coded semantic validators (beyond YAML capabilities) ──
+
+    # Voucher: all postings must NOT use the same account (nets to zero = useless)
+    if method.upper() == "POST" and clean_path == "/ledger/voucher":
+        postings = body.get("postings", [])
+        if len(postings) >= 2:
+            acct_ids = set()
+            for p in postings:
+                acct = p.get("account", {})
+                aid = acct.get("id") if isinstance(acct, dict) else None
+                if aid is not None:
+                    acct_ids.add(aid)
+            if len(acct_ids) == 1:
+                violations.append(
+                    "[voucher-same-account] All postings use the SAME account — this nets to zero! "
+                    "Row 1 (debit) and Row 2 (credit) MUST use DIFFERENT accounts. "
+                    "Look up the correct contra account (e.g. expense → credit 1920 bank, "
+                    "asset → credit 1209 accumulated depreciation or 2400 leverandørgjeld)."
+                )
+
     return violations
 
 # ── End Validation Rules Engine ─────────────────────────────────
