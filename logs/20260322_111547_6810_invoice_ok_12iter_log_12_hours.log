@@ -1,0 +1,240 @@
+
+======================================================================
+  NEW TASK RECEIVED
+  Version: 6906e87
+======================================================================
+  Prompt: Log 12 hours for Victoria Brown (victoria.brown@example.org) on the activity "Analyse" in the project "Data Migration" for Greenfield Ltd (org no. 890874185). Hourly rate: 850 NOK/h. Generate a project invoice to the customer based on the logged hours.
+  Files:  0
+  URL:    https://tx-proxy-jwanbnu3pq-lz.a.run.app/v2
+──────────────────────────────────────────────────────────────────────
+  [pre] Invoice/credit/payment task detected — ensuring bank account...
+    ┌─ API GET /invoice/settings
+    └─ 200 OK (1.5s) id=1013643
+    ┌─ API GET /ledger/account
+    │  params: {"isBankAccount": "true", "count": 10}
+  [github] Log pushed: 20260322_111506_2113_invoice_ok_13iter_registrer_30_timar.log (attempt 1)
+    └─ 200 OK (1.4s) [2 items]
+  [bank] found account 1920 id=500095630 v=0
+    ┌─ API PUT /ledger/account/500095630
+    │  body:   {"id": 500095630, "version": 0, "number": 1920, "name": "Bankinnskudd", "bankAccountNumber": "15030100112"}
+    └─ 200 OK (1.7s) id=500095630 name=Bankinnskudd
+  [bank] bank account set OK
+  [pre] Bank account setup: OK
+  [pre] Pre-scans completed in 4.6s
+
+──────────────────────────────────────────────────
+  ITERATION 1/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20087 completion=21 total_session=20108
+  Messages: 3 (74,917 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/customer"})
+    │  [fix] blocked POST without body: /customer
+  Iteration 1 took 0.7s
+
+──────────────────────────────────────────────────
+  ITERATION 2/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20174 completion=41 total_session=40323
+  Messages: 5 (75,127 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/customer","body":{"name":"Greenfield Ltd","isCustomer":true,"organizationNumber":"890874185"}})
+    ┌─ API POST /customer
+    │  body:   {"name": "Greenfield Ltd", "isCustomer": true, "organizationNumber": "890874185"}
+    └─ 201 OK (2.5s) id=108591898 name=Greenfield Ltd
+    │  response: {"value": {"id": 108591898, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108591898", "name": "Greenfield Ltd", "organizationNumber": "890874185", "globalLocationNumber": 0, "supplierNumber": 0, "customerNumber": 10002, "isSupplier": false, "isCustomer": true, "isInactive": false, "accountManager": null, "department": null, "email": "", "invoiceEmail": "", "overdueNoticeEmail": "", "phoneNumber": "", "phoneNumberMobile": "", "description": "", "language": "NO", "displayName": "Greenfield Ltd (10002)", "isPrivateIndividual": false, "singleCustomerInvoice": false, "invoiceSendMethod": "EMAIL", "emailAttachmentType": "ATTACHMENT", "postalAddress": {"id": 406028987, "url": "kkpqfuj-amager.tripletex.dev/v2/address/406028987"}, "physicalAddress": {"id": 406028986, "url": "kkpqfuj-amager.tripletex.dev/v2/address/406028986"}, "deliveryAddress": null, "category1": null, "category2": null, "category3": null, "invoicesDueIn": 14, "invoicesDueInType": "DAYS", "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "bankAccountPresentation": [], "ledgerAccount": {"id": 500095574, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/account/500095574"}, "isFactoring": false, "invoiceSendSMSNotification": false, "invoiceSMSNotificationNumber": "", "isAutomaticSoftReminderEnabled": false, "isAutomaticReminderEnabled": false, "isAutomaticNoticeOfDebtCollectionEnabled": false, "discountPercentage": 0, "website": ""}}
+  Iteration 2 took 3.3s
+
+──────────────────────────────────────────────────
+  ITERATION 3/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20660 completion=42 total_session=61025
+  Messages: 7 (76,580 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/employee","body":{"firstName":"Victoria","lastName":"Brown","email":"victoria.brown@example.org"}})
+    │  [reject] 1 rule violation(s):
+    │    • [employee-post-dateOfBirth] POST /employee should include 'dateOfBirth' (YYYY-MM-DD). Without it, employment creation will fail. Use a reasonable date like 1990-01-01 if the task doesn't specify. (missing: dateOfBirth)
+  Iteration 3 took 0.9s
+
+──────────────────────────────────────────────────
+  ITERATION 4/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20856 completion=53 total_session=81934
+  Messages: 9 (77,133 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/employee","body":{"firstName":"Victoria","lastName":"Brown","email":"victoria.brown@example.org","dateOfBirth":"1990-01-01"}})
+    ┌─ API POST /employee
+    │  body:   {"firstName": "Victoria", "lastName": "Brown", "email": "victoria.brown@example.org", "dateOfBirth": "1990-01-01"}
+    └─ 422 ERR (1.6s) {"status": 422, "code": 18000, "message": "Validering feilet.", "link": "https://tripletex.no/v2-docs/", "developerMessage": "VALIDATION_ERROR", "validationMessages": [{"field": null, "message": "Brukertype kan ikke være \"0\" eller tom.", "path": null, "rootId": null}], "requestId": "9fc2474b-e5a6-4114-8824-a1f47feb4bae", "_status_code": 422}
+    │  [auto-fix] POST /employee failed — searching for existing employee to rename as Victoria Brown
+    ┌─ API GET /employee
+    │  params: {"fields": "*"}
+    └─ 200 OK (2.1s) [2 items]
+    │  [auto-fix] matched employee 18790762 by email victoria.brown@example.org
+    ┌─ API PUT /employee/18790762
+    │  body:   {"id": 18790762, "version": 2, "firstName": "Victoria", "lastName": "Brown", "dateOfBirth": "1990-01-01"}
+    └─ 200 OK (2.0s) id=18790762 name=Victoria
+    │  [auto-fix] employee 18790762 renamed to Victoria Brown — returning as created
+    │  response: {"value": {"id": 18790762, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/18790762", "firstName": "Victoria", "lastName": "Brown", "displayName": "Victoria Brown", "employeeNumber": "", "dateOfBirth": "1990-01-01", "email": "victoria.brown@example.org", "phoneNumberMobileCountry": {"id": 161, "url": "kkpqfuj-amager.tripletex.dev/v2/country/161"}, "phoneNumberMobile": "", "phoneNumberHome": "", "phoneNumberWork": "", "nationalIdentityNumber": "", "dnumber": "", "internationalId": {"intAmeldingType": null, "country": null, "number": ""}, "bankAccountNumber": "", "iban": "", "bic": "", "creditorBankCountryId": 0, "usesAbroadPayment": false, "userType": null, "allowInformationRegistration": true, "isContact": false, "isProxy": false, "comments": "", "address": null, "department": {"id": 1021252, "url": "kkpqfuj-amager.tripletex.dev/v2/department/1021252"}, "employments": [], "holidayAllowanceEarned": {"year": 0, "amount": 0.0, "basis": 0.0, "amountExtraHolidayWeek": 0.0}, "employeeCategory": null, "isAuthProjectOverviewURL": true, "pictureId": 0, "companyId": 108591645, "vismaConnect2FAactive": false}, "_status_code": 201}
+  Iteration 4 took 6.6s
+
+──────────────────────────────────────────────────
+  ITERATION 5/25
+──────────────────────────────────────────────────
+  Tokens: prompt=21287 completion=64 total_session=103285
+  Messages: 11 (78,285 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/project","body":{"name":"Data Migration","number":"PRJ-2342","projectManager":{"id":18790762},"startDate":"2026-03-22","customer":{"id":108591898}}})
+    ┌─ API POST /project
+    │  body:   {"name": "Data Migration", "number": "PRJ-2342", "projectManager": {"id": 18790762}, "startDate": "2026-03-22", "customer": {"id": 108591898}}
+    └─ 201 OK (2.4s) id=402079957 name=Data Migration
+    │  response: {"value": {"id": 402079957, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/project/402079957", "name": "Data Migration", "number": "PRJ-2342", "displayName": "PRJ-2342 Data Migration", "description": "", "projectManager": {"id": 18790762, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/18790762"}, "department": null, "mainProject": null, "startDate": "2026-03-22", "endDate": null, "customer": {"id": 108591898, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108591898"}, "isClosed": false, "isReadyForInvoicing": false, "isInternal": false, "isOffer": false, "isFixedPrice": false, "projectCategory": null, "deliveryAddress": null, "boligmappaAddress": null, "displayNameFormat": "NAME_STANDARD", "reference": "", "externalAccountsNumber": "", "discountPercentage": 0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "fixedprice": 0, "contributionMarginPercent": 0, "numberOfSubProjects": 0, "numberOfProjectParticipants": 1, "orderLines": [], "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "markUpOrderLines": 0, "markUpFeesEarned": 0, "isPriceCeiling": false, "priceCeilingAmount": 0, "projectHourlyRates": [{"id": 11102007, "url": "kkpqfuj-amager.tripletex.dev/v2/project/hourlyRates/11102007"}], "forParticipantsOnly": false, "participants": [{"id": 15657257, "url": "kkpqfuj-amager.tripletex.dev/v2/project/participant/15657257"}], "contact": null, "attention": null, "invoiceComment": "", "invoicingPlan": [], "prelimin…
+  Iteration 5 took 3.9s
+
+──────────────────────────────────────────────────
+  ITERATION 6/25
+──────────────────────────────────────────────────
+  Tokens: prompt=22019 completion=21 total_session=125325
+  Messages: 13 (80,401 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"GET","path":"/activity"})
+    ┌─ API GET /activity
+    └─ 200 OK (1.7s) [5 items]
+    │  response: {"fullResultSize": 5, "from": 0, "count": 5, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 6176807, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/activity/6176807", "name": "Administrasjon", "number": "", "description": "", "activityType": "GENERAL_ACTIVITY", "isProjectActivity": false, "isGeneral": true, "isTask": false, "isDisabled": false, "isChargeable": false, "rate": 0.0, "costPercentage": 0.0, "displayName": "Administrasjon", "deletable": true}, {"id": 6176808, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/activity/6176808", "name": "Ferie", "number": "", "description": "", "activityType": "GENERAL_ACTIVITY", "isProjectActivity": false, "isGeneral": true, "isTask": false, "isDisabled": false, "isChargeable": false, "rate": 0.0, "costPercentage": 0.0, "displayName": "Ferie", "deletable": false}, {"id": 6176809, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/activity/6176809", "name": "Prosjektadministrasjon", "number": "", "description": "", "activityType": "PROJECT_GENERAL_ACTIVITY", "isProjectActivity": true, "isGeneral": true, "isTask": false, "isDisabled": false, "isChargeable": false, "rate": 0.0, "costPercentage": 0.0, "displayName": "Prosjektadministrasjon", "deletable": true}, {"id": 6176810, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/activity/6176810", "name": "Fakturerbart arbeid", "number": "", "description": "", "activityType": "PROJECT_GENERAL_ACTIVITY", "isProjectActivity": true, "isGeneral": t…
+  Iteration 6 took 2.7s
+
+──────────────────────────────────────────────────
+  ITERATION 7/25
+──────────────────────────────────────────────────
+  Tokens: prompt=22715 completion=82 total_session=148122
+  Messages: 15 (82,434 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/timesheet/entry","body":{"employee":{"id":18790762},"project":{"id":402079957},"activity":{"id":6176897},"date":"2026-03-22","hours":12,"hourlyRate":850,"chargeable":true,"comment":"Data analysis for project."}})
+    ┌─ API POST /timesheet/entry
+    │  body:   {"employee": {"id": 18790762}, "project": {"id": 402079957}, "activity": {"id": 6176897}, "date": "2026-03-22", "hours": 12, "hourlyRate": 850, "chargeable": true, "comment": "Data analysis for project."}
+    └─ 201 OK (2.6s) id=175918164
+    │  response: {"value": {"id": 175918164, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/timesheet/entry/175918164", "project": {"id": 402079957, "url": "kkpqfuj-amager.tripletex.dev/v2/project/402079957"}, "activity": {"id": 6176897, "url": "kkpqfuj-amager.tripletex.dev/v2/activity/6176897"}, "date": "2026-03-22", "hours": 12.0, "chargeableHours": 12.0, "employee": {"id": 18790762, "url": "kkpqfuj-amager.tripletex.dev/v2/employee/18790762"}, "timeClocks": [], "comment": "Data analysis for project.", "locked": false, "chargeable": false, "invoice": null, "hourlyRate": 0.0, "hourlyCost": 0.0, "hourlyCostPercentage": 0, "projectChargeableHours": 12.0}}
+  Iteration 7 took 3.9s
+  [trim] Compressed 2 old tool responses to save tokens
+
+──────────────────────────────────────────────────
+  ITERATION 8/25
+──────────────────────────────────────────────────
+  Tokens: prompt=22499 completion=45 total_session=170666
+  Messages: 17 (81,163 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/product","body":{"name":"Data Migration Analysis","priceExcludingVatCurrency":850,"vatType":{"id":3}}})
+    ┌─ API POST /product
+    │  body:   {"name": "Data Migration Analysis", "priceExcludingVatCurrency": 850, "vatType": {"id": 3}}
+    └─ 201 OK (2.1s) id=84439823 name=Data Migration Analysis
+    │  response: {"value": {"id": 84439823, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84439823", "name": "Data Migration Analysis", "number": "", "displayNumber": "", "description": "", "orderLineDescription": "", "costExcludingVatCurrency": 0, "costPrice": 0, "priceExcludingVatCurrency": 850, "priceIncludingVatCurrency": 1062.5, "isInactive": false, "productUnit": null, "incomingStock": 0, "outgoingStock": 0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "department": null, "account": null, "supplier": null, "resaleProduct": null, "isDeletable": false, "hasSupplierProductConnected": false, "image": null, "displayName": "Data Migration Analysis", "mainSupplierProduct": null, "isRoundPriceIncVat": false, "priceInTargetCurrency": 0, "purchasePriceCurrency": 0}}
+  Iteration 8 took 2.9s
+  [trim] Compressed 1 old tool responses to save tokens
+
+──────────────────────────────────────────────────
+  ITERATION 9/25
+──────────────────────────────────────────────────
+  Tokens: prompt=22489 completion=60 total_session=193215
+  Messages: 19 (80,966 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order","body":{"customer":{"id":108591898},"orderDate":"2026-03-22","deliveryDate":"2026-03-22","project":{"id":402079957}}})
+    ┌─ API POST /order
+    │  body:   {"customer": {"id": 108591898}, "orderDate": "2026-03-22", "deliveryDate": "2026-03-22", "project": {"id": 402079957}}
+    └─ 201 OK (1.4s) id=402079963
+    │  response: {"value": {"id": 402079963, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402079963", "customer": {"id": 108591898, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108591898"}, "contact": null, "attn": null, "displayName": "2 Ordre", "receiverEmail": "", "overdueNoticeEmail": "", "number": "2", "reference": "", "department": null, "orderDate": "2026-03-22", "project": {"id": 402079957, "url": "kkpqfuj-amager.tripletex.dev/v2/project/402079957"}, "invoiceComment": "", "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "invoicesDueIn": 14, "invoicesDueInType": "DAYS", "isShowOpenPostsOnInvoices": false, "isClosed": false, "deliveryDate": "2026-03-22", "deliveryAddress": null, "deliveryComment": "", "isPrioritizeAmountsIncludingVat": false, "orderLineSorting": "PRODUCT", "orderGroups": [], "orderLines": [], "isSubscription": false, "subscriptionDuration": 0, "subscriptionDurationType": "MONTHS", "subscriptionPeriodsOnInvoice": 0, "subscriptionPeriodsOnInvoiceType": "MONTHS", "subscriptionInvoicingTimeInAdvanceOrArrears": "ADVANCE", "subscriptionInvoicingTime": 0, "subscriptionInvoicingTimeType": "MONTHS", "isSubscriptionAutoInvoicing": false, "preliminaryInvoice": {"id": 2147699034, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147699034"}, "attachment": [], "sendMethodDescription": "Faktura må sendes manuelt.", "invoiceOnAccountVatHigh": false, "totalInvoicedOnAccountAmountAbsoluteCurrency": 0.0, "invoiceSendSMSNotification": false, "i…
+  Iteration 9 took 2.5s
+  [trim] Compressed 1 old tool responses to save tokens
+
+──────────────────────────────────────────────────
+  ITERATION 10/25
+──────────────────────────────────────────────────
+  Tokens: prompt=22448 completion=45 total_session=215708
+  Messages: 21 (80,631 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402079963},"product":{"id":84439823},"count":12}})
+    ┌─ API POST /order/orderline
+    │  body:   {"order": {"id": 402079963}, "product": {"id": 84439823}, "count": 12}
+    └─ 201 OK (1.5s) id=1607613502
+    │  response: {"value": {"id": 1607613502, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607613502", "product": {"id": 84439823, "url": "kkpqfuj-amager.tripletex.dev/v2/product/84439823"}, "inventory": null, "description": "", "displayName": "Data Migration Analysis", "count": 12.0, "unitCostCurrency": 0.0, "unitPriceExcludingVatCurrency": 850.0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "markup": 0.0, "discount": 0.0, "vatType": {"id": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/3"}, "amountExcludingVatCurrency": 10200.0, "amountIncludingVatCurrency": 12750.0, "vendor": null, "order": {"id": 402079963, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402079963"}, "unitPriceIncludingVatCurrency": 1062.5, "isSubscription": false, "subscriptionPeriodStart": null, "subscriptionPeriodEnd": null, "orderGroup": null, "sortIndex": 0, "isPicked": false, "pickedDate": null, "orderedQuantity": 0, "isCharged": false}}
+  Iteration 10 took 2.5s
+  [trim] Compressed 1 old tool responses to save tokens
+
+──────────────────────────────────────────────────
+  ITERATION 11/25
+──────────────────────────────────────────────────
+  Tokens: prompt=22190 completion=54 total_session=237952
+  Messages: 23 (79,607 chars)
+  Tool calls (1):
+    [1] tripletex_api({"method":"POST","path":"/invoice","body":{"invoiceDate":"2026-03-22","invoiceDueDate":"2026-04-05","orders":[{"id":402079963}]}})
+    ┌─ API POST /invoice
+    │  body:   {"invoiceDate": "2026-03-22", "invoiceDueDate": "2026-04-05", "orders": [{"id": 402079963}]}
+    └─ 201 OK (3.8s) id=2147699040
+    │  response: {"value": {"id": 2147699040, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147699040", "invoiceNumber": 1, "invoiceDate": "2026-03-22", "customer": {"id": 108591898, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108591898"}, "creditedInvoice": 0, "isCredited": false, "invoiceDueDate": "2026-04-05", "kid": "", "invoiceComment": "", "comment": "", "orders": [{"id": 402079963, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402079963"}], "orderLines": [{"id": 1607613502, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607613502"}], "travelReports": [], "projectInvoiceDetails": [{"id": 1965828742, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/details/1965828742"}], "voucher": {"id": 609415865, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609415865"}, "deliveryDate": "2026-03-22", "amount": 12750.0, "amountCurrency": 12750.0, "amountExcludingVat": 10200.0, "amountExcludingVatCurrency": 10200.0, "amountRoundoff": 0, "amountRoundoffCurrency": 0, "amountOutstanding": 12750.0, "amountCurrencyOutstanding": 12750.0, "amountOutstandingTotal": 12750.0, "amountCurrencyOutstandingTotal": 12750.0, "sumRemits": 0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "isCreditNote": false, "isCharged": true, "isApproved": false, "postings": [{"id": 3846501669, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3846501669"}], "reminders": [], "invoiceRemarks": "", "invoiceRemark": null, "isPeriodizationPossible": true, "documentI…
+  Iteration 11 took 4.7s
+  [trim] Compressed 1 old tool responses to save tokens
+
+──────────────────────────────────────────────────
+  ITERATION 12/25
+──────────────────────────────────────────────────
+  Tokens: prompt=22562 completion=9 total_session=260523
+  Messages: 25 (80,510 chars)
+  Tool calls (1):
+    [1] done()
+
+  ⏳ Verifying task completion (200s remaining)...
+  📋 Verification prompt (4594 chars):
+    │ TASK: Log 12 hours for Victoria Brown (victoria.brown@example.org) on the activity "Analyse" in the project "Data Migration" for Greenfield Ltd (org no. 890874185). Hourly rate: 850 NOK/h. Generate a project invoice to the customer based on the logged hours.
+    │ 
+    │ 
+    │ ACTION LOG (chronological):
+    │ CALL: tripletex_api({"method":"POST","path":"/customer"})
+    │ status=400
+    │ CALL: tripletex_api({"method":"POST","path":"/customer","body":{"name":"Greenfield Ltd","isCustomer":true,"organizationNumber":"890874185"}})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"POST","path":"/employee","body":{"firstName":"Victoria","lastName":"Brown","email":"victoria.brown@example.org"}})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"POST","path":"/employee","body":{"firstName":"Victoria","lastName":"Brown","email":"victoria.brown@example.org","dateOfBirth":"1990-01-01"}})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"POST","path":"/project","body":{"name":"Data Migration","number":"PRJ-2342","projectManager":{"id":18790762},"startDate":"2026-03-22","customer":{"id":108591898}}})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"GET","path":"/activity"})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"POST","path":"/timesheet/entry","body":{"employee":{"id":18790762},"project":{"id":402079957},"activity":{"id":6176897},"date":"2026-03-22","hours":12,"hourlyRate":850,"chargeable":true,"comment":"Data analysis for project."}})
+    │ status=ok
+    │ CALL: tripletex_api({"method":"POST","path":"/product","body":{"name":"Data Migration Analysis","priceExcludingVatCurrency":850,"vatType":{"id":3}}})
+    │ status=ok id=84439823 name=Data Migration Analysis priceExcludingVatCurrency=850 priceIncludingVatCurrency=1062.5
+    │ CALL: tripletex_api({"method":"POST","path":"/order","body":{"customer":{"id":108591898},"orderDate":"2026-03-22","deliveryDate":"2026-03-22","project":{"id":402079957}}})
+    │ status=ok id=402079963
+    │ CALL: tripletex_api({"method":"POST","path":"/order/orderline","body":{"order":{"id":402079963},"product":{"id":84439823},"count":12}})
+    │ status=ok id=1607613502 count=12.0
+    │ CALL: tripletex_api({"method":"POST","path":"/invoice","body":{"invoiceDate":"2026-03-22","invoiceDueDate":"2026-04-05","orders":[{"id":402079963}]}})
+    │ status=ok id=2147699040 amount=12750.0 amountCurrency=12750.0 invoiceNumber=1
+    │ CALL: done({})
+    │ 
+    │ You are an accounting verification agent. Based ONLY on the action log above, check:
+    │ 1. MATH: All amounts, percentages, VAT calculations correct? (e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)
+    │ 2. COMPLETENESS: Were all steps in the task done? Look at the CALL entries — if the action log shows the step was performed with status=ok, it WAS done. Do NOT say a step is missing if you can see it in the log!
+    │ IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!
+    │ 3. DATA: Names, org numbers, dates match the task?
+    │ 4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently. For supplier invoices: amount=0 with amountExcludingVat=0 means postings were MISSING or malformed.
+    │ 5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.
+    │ 6. PAYMENT AMOUNTS: Invoice payments and reversals use the FULL amount INCLUDING VAT, not excl. VAT. If the task says 'X NOK excl. VAT', the correct payment/reversal amount is X × 1.25 (Norwegian 25% VAT). Do NOT flag a mismatch between excl. VAT amounts in the task and incl. VAT payment amounts.
+    │ 7. VAT BREAKDOWN: If the total invoice amount matches the expected sum, do NOT fail on 'VAT breakdown not reflected' or similar vague VAT concerns. Only fail if a specific line item has the WRONG VAT rate applied.
+    │ 
+    │ CRITICAL: Be CONSERVATIVE. When in doubt, say PASS.
+    │ Only say FAIL for CLEAR, OBJECTIVE, SPECIFIC errors (wrong math, completely missing step, wrong name).
+    │ Do NOT say FAIL for: vague concerns, 'might be wrong', uncertain issues, minor stylistic differences, or steps you cannot confirm from the log (absence of evidence is NOT evidence of absence).
+    │ A false FAIL causes MORE damage than a missed error. When uncertain, ALWAYS say PASS.
+    │ If the action log shows all main steps completed with status=ok, say PASS.
+    │ 
+    │ Reply ONLY with either:
+    │ - 'PASS' if everything looks correct or you are unsure
+    │ - 'FAIL: <specific issue>' ONLY if there is an obvious, objective error
+  🔍 Verification (1217 tokens): PASS
+
+  ✓ DONE — 12 iterations, 260523 tokens, 35.3s
+
+======================================================================
+  TASK COMPLETE — total 40.4s
+======================================================================
+
