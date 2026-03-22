@@ -761,17 +761,17 @@ Step 3: Create the project WITH fixed price fields.
   CRITICAL: "fixedprice" is ALL LOWERCASE. "isFixedPrice" has a capital F and P (Boolean).
 
 Step 4: Create the milestone invoice.
-  Calculate milestone amount CAREFULLY: milestoneAmount = fixedprice × percentage ÷ 100.
+  The fixedprice on the project is EXCLUDING VAT. Calculate the milestone portion:
+  milestoneExclVat = fixedprice × percentage ÷ 100.
   DOUBLE-CHECK YOUR MATH! Common mistakes: using wrong fixedprice, dividing instead of multiplying, rounding errors.
   Examples:
-  - 50% of 274950 = 274950 × 50 ÷ 100 = 137475 NOK
-  - 33% of 365950 = 365950 × 33 ÷ 100 = 120763.50 NOK
-  - 25% of 500000 = 500000 × 25 ÷ 100 = 125000 NOK
-  This milestone amount IS the total invoice amount INCLUDING VAT.
-  CRITICAL: The milestone amount is what the customer pays (VAT-inclusive). You must back-calculate the ex-VAT price!
+  - 50% of 274950 = 274950 × 50 ÷ 100 = 137475 NOK excl. VAT
+  - 33% of 365950 = 365950 × 33 ÷ 100 = 120763.50 NOK excl. VAT
+  - 25% of 471400 = 471400 × 25 ÷ 100 = 117850 NOK excl. VAT
+  This milestone amount is EXCLUDING VAT. Use it directly as the product price.
   a. GET /ledger/vatType — find the OUTGOING ("Utgående") 25% VAT type. Look for name containing "Utgående" and percentage=25. Use its "id" field (NOT the "number" field).
-  b. POST /product — name like "Delbetaling - PROJECT_NAME", priceExcludingVatCurrency = milestoneAmount / 1.25 (to make total INCLUDING 25% VAT equal the milestone amount). vatType:{"id": THE_ID_FROM_STEP_A}.
-     Example: milestone=137475 → priceExcludingVatCurrency = 137475 / 1.25 = 109980.
+  b. POST /product — name like "Delbetaling - PROJECT_NAME", priceExcludingVatCurrency = milestoneExclVat (this IS already the ex-VAT amount — do NOT divide by 1.25!). vatType:{"id": THE_ID_FROM_STEP_A}.
+     Example: 25% of fixedprice 471400 → priceExcludingVatCurrency = 117850. Invoice incl. VAT = 117850 × 1.25 = 147312.50.
   c. POST /order — customer:{id}, orderDate, deliveryDate, project:{id}.
   d. POST /order/orderline — order:{id}, product:{id}, count:1.
   e. POST /invoice — invoiceDate, invoiceDueDate, orders:[{id}].
@@ -1706,8 +1706,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "- Project created with isFixedPrice=true AND fixedprice=AMOUNT (lowercase 'fixedprice')?\n"
                                 "- Project linked to customer (customer.id set on project)?\n"
                                 "- Project manager set correctly?\n"
-                                "- Milestone amount = fixedprice × percentage. This is the TOTAL invoice amount incl. VAT.\n"
-                                "- Product priceExcludingVatCurrency = milestoneAmount / 1.25 (for 25% VAT)?\n"
+                                "- fixedprice is EXCLUDING VAT. Milestone excl. VAT = fixedprice × percentage.\n"
+                                "- Product priceExcludingVatCurrency = fixedprice × percentage (already ex-VAT, NOT divided by 1.25)?\n"
+                                "- Invoice total incl. VAT = milestoneExclVat × 1.25?\n"
                                 "- Invoice created from order linked to the project?\n"
                                 "- Invoice NOT sent unless task explicitly says send/sende/enviar/envoyer?\n"
                                 "  'Fakturer'/'fakturér' means CREATE invoice, NOT send it!\n"
@@ -2351,24 +2352,27 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 _fix_dates_in_obj(item, f"{path_prefix}[{i}].")
                     _fix_dates_in_obj(req_body)
 
-                # Auto-fix: milestone product pricing — price should be ex-VAT
-                # If we tracked a fixedprice and now POST /product with price = fixedprice * fraction,
-                # the LLM likely forgot to divide by 1.25. Auto-correct.
+                # Auto-fix: milestone product pricing — detect if LLM divided by 1.25 when it shouldn't
+                # fixedprice on project is ALREADY ex-VAT. milestoneExclVat = fixedprice × fraction.
+                # If LLM divided by 1.25, undo it.
                 if (tracked_fixedprice and args["method"] == "POST"
                         and args["path"].rstrip("/") == "/product" and req_body):
                     price = req_body.get("priceExcludingVatCurrency")
                     if price and tracked_fixedprice > 0:
                         ratio = round(price / tracked_fixedprice, 4)
-                        # Common milestone fractions: 25%, 33%, 50%, 75%, 100%
+                        # Check if LLM correctly used fixedprice × fraction (already ex-VAT)
                         known_fractions = [0.25, 1/3, 0.5, 0.75, 1.0]
-                        for frac in known_fractions:
-                            if abs(ratio - frac) < 0.001:
-                                # Price matches a clean fraction → LLM used milestone amount as ex-VAT
-                                corrected = round(price / 1.25, 2)
-                                req_body["priceExcludingVatCurrency"] = corrected
-                                print(f"    │  [fix] milestone product price {price} → {corrected} "
-                                      f"(÷1.25 so total incl. 25% VAT = {price})", flush=True)
-                                break
+                        is_clean_fraction = any(abs(ratio - frac) < 0.001 for frac in known_fractions)
+                        if not is_clean_fraction:
+                            # Check if LLM divided by 1.25 (price = fixedprice × frac / 1.25)
+                            ratio_times_125 = round(price * 1.25 / tracked_fixedprice, 4)
+                            for frac in known_fractions:
+                                if abs(ratio_times_125 - frac) < 0.001:
+                                    corrected = round(price * 1.25, 2)
+                                    req_body["priceExcludingVatCurrency"] = corrected
+                                    print(f"    │  [fix] milestone product price {price} → {corrected} "
+                                          f"(×1.25 — fixedprice is already ex-VAT, no need to divide)", flush=True)
+                                    break
 
                 # ── Validation rules check (after auto-fixes, before API call) ──
                 violations = validate_tool_call(
@@ -2732,7 +2736,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             print(f"    │  [auto-fix] retry without division also failed: {retry_sc}", flush=True)
 
                 # Track fixed-price project creation + diagnostic GET-back
-                if (args["method"] == "POST" and args["path"].rstrip("/") == "/project"
+                if (args["method"] in ("POST", "PUT") and re.match(r'^/project(/\d+)?$', args["path"].rstrip("/"))
                         and sc < 400 and req_body
                         and req_body.get("isFixedPrice") and req_body.get("fixedprice")):
                     tracked_fixedprice = float(req_body["fixedprice"])
