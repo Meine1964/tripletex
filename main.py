@@ -2277,6 +2277,18 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     print(f"    │  [fix] GET body → params: {req_body}", flush=True)
                     req_body = None
                     args.pop("body", None)
+                # Auto-fix: action endpoints (path contains /:) — move body→params
+                # GPT often puts payment/send/creditNote fields in body instead of params.
+                # call_tripletex also does this, but validation rules reject body fields first.
+                # So we must fix BEFORE validation.
+                if args["method"] == "PUT" and req_body and '/:' in args["path"]:
+                    if args.get("params") is None:
+                        args["params"] = {}
+                    args["params"].update(req_body)
+                    print(f"    │  [fix] action endpoint: moved body → params: {list(req_body.keys())}", flush=True)
+                    req_body = None
+                    args["body"] = None
+                    args.pop("body", None)
                 # Auto-fix: PUT with params but no body (non-action endpoints) → move params to body
                 # This prevents the infinite put-no-body validation loop when GPT sends params instead of body
                 if args["method"] == "PUT" and not req_body and args.get("params") and '/:' not in args["path"]:

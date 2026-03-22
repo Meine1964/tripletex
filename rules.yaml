@@ -509,6 +509,18 @@ rules:
       POST /timesheet/entry requires: employee.id, project.id, activity.id,
       date, and hours.
 
+  - id: timesheet-hourlyRate-required
+    description: "POST /timesheet/entry needs hourlyRate for billable work"
+    when:
+      method: POST
+      path: /timesheet/entry
+    require_fields:
+      - hourlyRate
+    message: >
+      POST /timesheet/entry requires 'hourlyRate'! Without it, hours are
+      registered with rate=0 and the project invoice will have the wrong
+      total. Use the hourly rate from the task description.
+
   # ── Product ───────────────────────────────────────────────────
   - id: product-required
     description: "POST /product needs a name"
