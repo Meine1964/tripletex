@@ -278,7 +278,8 @@ def validate_tool_call(method, path, body=None, params=None):
     # ── Hard-coded semantic validators (beyond YAML capabilities) ──
 
     # Block PUT requests without body (causes infinite 422 loop)
-    if method.upper() == "PUT" and not body:
+    # BUT: action endpoints (path contains /:) use params, NOT body — don't block those!
+    if method.upper() == "PUT" and not body and '/:' not in clean_path:
         violations.append(
             "[put-no-body] PUT request has no body! PUT requires a JSON body with at least 'id' and 'version'. "
             "First GET the resource to obtain its current id and version, then PUT with the fields you want to change."
@@ -1380,7 +1381,7 @@ def call_tripletex(base_url: str, auth: tuple, method: str, path: str,
     t0 = time.time()
     try:
         resp = requests.request(
-            method, url, auth=auth, timeout=30, verify=False,
+            method, url, auth=auth, timeout=20, verify=False,
             params=params, json=send_body if method in ("POST", "PUT") else None,
         )
         elapsed = time.time() - t0
@@ -1855,6 +1856,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         except Exception as e:
             print(f"  ⚠ OpenAI error: {e} — retrying in 2s...", flush=True)
             diag["errors"].append(f"OpenAI: {e}")
+            # Check time budget before retrying
+            if time.time() - agent_start > _iter_budget - 30:
+                print(f"  ✗ Not enough time for retry, stopping", flush=True)
+                break
             time.sleep(2)
             try:
                 response = client.chat.completions.create(
