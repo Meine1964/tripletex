@@ -372,8 +372,7 @@ KEY ENDPOINTS:
 - PUT /company — update company (no ID in path!). Include id + version in body. NOTE: bankAccountNumber is NOT on company — use PUT /ledger/account/{id} instead!
 - GET /ledger/account?isBankAccount=true — find bank accounts. PUT /ledger/account/{id} to set bankAccountNumber.
 - GET/POST /deliveryAddress — delivery addresses
-- POST /incomingInvoice — [BETA] register a supplier/incoming invoice. Params: sendTo=ledger. Body: {invoiceHeader:{vendorId, invoiceDate, dueDate, invoiceAmount, invoiceNumber, description}, orderLines:[{externalId, row, accountId, amountInclVat, vatTypeId, description}]}
-- POST /supplierInvoice — create supplier invoice with voucher postings: {invoiceNumber, invoiceDate, invoiceDueDate, supplier:{id}, voucher:{date, description, postings:[{row, date, amountGross, amountGrossCurrency, account:{id}, vatType:{id}}]}}
+- POST /supplierInvoice — create supplier invoice with voucher postings: {invoiceNumber, invoiceDate, invoiceDueDate, supplier:{id}, voucher:{date, description, postings:[{row, date, amountGross, amountGrossCurrency, account:{id}, vatType:{id}}]}}. MUST include TWO postings (debit expense + credit 2400). DO NOT use /incomingInvoice.
 - GET/POST /ledger/voucher — journal entries with postings. POST requires JSON BODY (not params!): {date, description, postings:[{row, date, amountGross, amountGrossCurrency, account:{id}, vatType:{id:0}}]}. IMPORTANT: Use amountGross (NOT amount) for posting amounts!
 - POST /ledger/accountingDimensionName — create a free/user-defined accounting dimension. Field: {\"dimensionName\": \"DIM_NAME\"} (NOT \"name\"!)
 - POST /ledger/accountingDimensionValue — create a value. Body: {\"displayName\": \"VALUE\"}, pass ?dimensionNameId=ID as query param
@@ -1036,55 +1035,34 @@ Step 1: Create the supplier.
   POST /supplier with: name, organizationNumber (if given), email (if given), invoiceEmail (same as email), phoneNumber (if given)
   NOTE: Use /supplier NOT /customer! Suppliers are separate entities.
 
-Step 2: Look up VAT types and accounts.
+Step 2: Look up VAT types and expense account.
   GET /ledger/vatType — find the INCOMING/INPUT VAT type for the given percentage.
-  For 25% input VAT: look for name containing "Inngående" or "Fradrag inngående" with percentage=25.
-  Note the "id" — do NOT use the "number" field.
+  For 25% input VAT: look for name containing "Inngående" or "Fradrag inngående" with 25%.
+  The correct VAT type id for 25% incoming VAT is typically id=1. Note the "id" — do NOT use the "number" field.
   GET /ledger/account with params: {"number": "6590"} — look up the expense account by its number.
   CRITICAL: Use the "params" field for query parameters, NOT a "query" field! Example:
     tripletex_api(method="GET", path="/ledger/account", params={"number": "6590"})
   Common expense accounts: 6100-6999 (office/admin), 4000-4999 (goods), 7000-7999 (other expenses).
-  ALWAYS look up account IDs first. Use {"id": X} not {"number": X} in POST bodies.
-  CRITICAL: Account NUMBERS (like 2400, 6340) are NOT the same as account IDs! You MUST call GET /ledger/account?number=2400 to find the actual ID. Using NUMBER as ID will cause silent failures!
+  CRITICAL: Account NUMBERS (like 2400, 6340) are NOT the same as account IDs! You MUST call GET /ledger/account?number=XXXX to find the actual ID. Using a NUMBER as ID will cause SILENT FAILURES!
+  DO NOT look up products. Supplier invoices use ACCOUNTS, not products.
 
 Step 3: Calculate amounts.
   If the task says "65850 NOK including VAT" with 25% VAT:
   - Total incl. VAT = 65850
   - VAT amount = 65850 / 1.25 * 0.25 = 13170
   - Amount excl. VAT = 65850 - 13170 = 52680
+  If the task says "38350 NOK excluding VAT" with 25% VAT:
+  - Total incl. VAT = 38350 * 1.25 = 47937.50
+  IMPORTANT: For supplier invoices, the voucher postings use the TOTAL INCLUDING VAT as amountGross!
 
-Step 4: Register the supplier invoice. Try POST /incomingInvoice first (BETA endpoint).
-  POST /incomingInvoice with params: sendTo=ledger
-  Body (use "body" field, NOT "params"):
-  {
-    "invoiceHeader": {
-      "vendorId": SUPPLIER_ID,
-      "invoiceDate": "{today}",
-      "dueDate": "DUE_DATE",
-      "invoiceAmount": TOTAL_INCL_VAT,
-      "invoiceNumber": "INVOICE_NUMBER",
-      "description": "Supplier invoice INVOICE_NUMBER from SUPPLIER_NAME"
-    },
-    "orderLines": [
-      {
-        "externalId": "line-1",
-        "row": 1,
-        "description": "EXPENSE_DESCRIPTION",
-        "accountId": EXPENSE_ACCOUNT_ID,
-        "amountInclVat": TOTAL_INCL_VAT,
-        "vatTypeId": VAT_TYPE_ID
-      }
-    ]
-  }
-  NOTE: For the dueDate, use 30 days after invoiceDate if not specified.
-  NOTE: amountInclVat on the order line = the TOTAL including VAT for that line.
-  NOTE: The sendTo=ledger param goes in "params", the body in "body".
+Step 4: Look up expense account AND accounts payable. You MUST do this BEFORE creating the invoice.
+  GET /ledger/account?number=EXPENSE_ACCT (e.g. 6500, 6340, 4300) — note the "id" from the response.
+  GET /ledger/account?number=2400 — note the "id" for Leverandørgjeld (accounts payable).
+  CRITICAL: Account NUMBERS (like 2400, 6340) are NOT the same as account IDs! You MUST look up the actual ID first.
 
-Step 5: If POST /incomingInvoice returns 403 (no permission), fall back to POST /supplierInvoice.
-  First: GET /ledger/account to look up these accounts:
-  - The expense account (e.g. 6590)
-  - Account 2400 (Leverandørgjeld / AP)
-  POST /supplierInvoice with JSON BODY:
+Step 5: Create the supplier invoice with POST /supplierInvoice.
+  DO NOT use POST /incomingInvoice — it creates broken invoices with amount=0!
+  POST /supplierInvoice with JSON BODY (use "body" field, NOT "params"):
   {
     "invoiceNumber": "INVOICE_NUMBER",
     "invoiceDate": "{today}",
@@ -1099,18 +1077,22 @@ Step 5: If POST /incomingInvoice returns 403 (no permission), fall back to POST 
       ]
     }
   }
+  NOTE: For the dueDate, use 30 days after invoiceDate if not specified.
   CRITICAL POSTING RULES for supplierInvoice:
-  - Use "amountGross" and "amountGrossCurrency" (NOT "amount"/"amountCurrency") for supplier invoice voucher postings.
+  - Use "amountGross" and "amountGrossCurrency" (NOT "amount"/"amountCurrency").
+  - BOTH postings use the TOTAL INCLUDING VAT (not excl. VAT). The API calculates VAT from the vatType.
   - Each posting MUST have "row" field: 1, 2... (starting from 1, NOT 0!)
-  - Each posting MUST have "date" field
+  - Each posting MUST have "date" field.
   - Debit row: positive amountGross (expense). Credit row: negative amountGross (payable 2400).
-  - MUST include both debit AND credit postings, otherwise error "credit posting missing".
+  - MUST include BOTH debit AND credit postings — a single posting creates a broken invoice with amount=0!
   - Credit posting on account 2400 MUST include "supplier": {"id": SUPPLIER_ID}.
   - The debit posting should include "vatType": {"id": VAT_TYPE_ID} for the VAT to be calculated.
   - If the task mentions a DEPARTMENT: add "department": {"id": DEPT_ID} on EACH posting.
     Look up department first with GET /department?name=DEPT_NAME.
+  DO NOT look up products for supplier invoices. Use expense accounts directly.
+  DO NOT use POST /incomingInvoice — it is unreliable and creates empty invoices.
 
-Step 6: If POST /supplierInvoice fails with a validation error, READ the error message carefully and FIX the body. Do NOT fall through to /ledger/voucher unless /supplierInvoice has failed 3+ times with DIFFERENT errors.
+Step 6: If POST /supplierInvoice fails with a validation error, READ the error message carefully and FIX the body.
   Common fixes:
   - "amountGross cannot be null" → you used "amount" instead of "amountGross"
   - "credit posting missing" → you need BOTH debit (positive) AND credit (negative) postings
@@ -1847,7 +1829,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     "- Correct VAT type (inngående MVA for purchases)?\n"
                                     "- Department assigned on voucher postings or supplier invoice?\n"
                                     "- Amounts correct (incl/excl VAT)?\n"
-                                    "- Supplier invoice amount=0 in response is NORMAL for Tripletex — do NOT flag it.\n"
+                                    "- If supplier invoice amount=0 AND amountExcludingVat=0, the postings were WRONG.\n"
                                 )
                             else:
                                 _task_checks = (
@@ -1878,7 +1860,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             "IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!\n"
                             "3. DATA: Names, org numbers, dates match the task?\n"
                             "4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently. "
-                            "EXCEPTION: Supplier invoice (supplierInvoice) responses normally show amount=0 — this is OK.\n"
+                            "For supplier invoices: amount=0 with amountExcludingVat=0 means postings were MISSING or malformed.\n"
                             "5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. "
                             "For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. "
                             "For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.\n"
@@ -2421,6 +2403,23 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                           f"(×1.25 — fixedprice is already ex-VAT, no need to divide)", flush=True)
                                     break
 
+                # ── Block /incomingInvoice → redirect agent to /supplierInvoice ──
+                if args["method"] == "POST" and args["path"].rstrip("/") == "/incomingInvoice":
+                    print(f"    │  [block] POST /incomingInvoice → use /supplierInvoice instead", flush=True)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps({
+                            "error": "POST /incomingInvoice is disabled — it creates broken invoices with amount=0. "
+                                     "Use POST /supplierInvoice instead with voucher.postings array containing "
+                                     "both debit (expense account, positive amountGross) and credit (2400, negative amountGross). "
+                                     "See the supplier invoice workflow for the exact body format.",
+                            "_status_code": 403,
+                        }),
+                    })
+                    diag["errors"].append("BLOCKED: POST /incomingInvoice → use /supplierInvoice")
+                    continue
+
                 # ── Validation rules check (after auto-fixes, before API call) ──
                 violations = validate_tool_call(
                     args["method"], args["path"],
@@ -2507,6 +2506,25 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
                 call_info = f"{args['method']} {args['path']} -> {sc}"
                 diag["api_calls"].append(call_info)
+
+                # Post-call check: supplier invoice with amount=0 means postings failed
+                if (args["method"] == "POST"
+                        and args["path"].rstrip("/") == "/supplierInvoice"
+                        and sc < 400):
+                    si_val = result.get("value", result)
+                    si_amount = si_val.get("amount", -1)
+                    si_amount_ex = si_val.get("amountExcludingVat", -1)
+                    if si_amount == 0 and si_amount_ex == 0:
+                        result["_warning"] = (
+                            "WARNING: Supplier invoice was created but amount=0! "
+                            "This means the voucher postings were EMPTY or malformed. "
+                            "The invoice is BROKEN. You need to check: "
+                            "1) Did you include voucher.postings with BOTH debit and credit? "
+                            "2) Did you use amountGross (not amount) for the amounts? "
+                            "3) Delete this invoice and recreate it with proper postings."
+                        )
+                        print(f"    │  [warn] supplier invoice created with amount=0 — postings likely missing/broken", flush=True)
+
                 if sc >= 400:
                     # Capture validation error details
                     val_msgs = result.get("validationMessages") or []
