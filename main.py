@@ -542,40 +542,50 @@ Step 5: Calculate and post tax provision (if requested).
 
 IMPORTANT: Complete ALL steps in the task! Do not call done() until depreciation, prepaid reversal, AND tax provision are all posted.
 
-MONTHLY CLOSING WORKFLOW (for "encerramento mensal"/"månedsavslutning"/"monthly closing"/"Monatsabschluss"/"cierre mensual" tasks):
+MONTHLY CLOSING WORKFLOW (for "encerramento mensal"/"månedsavslutning"/"månavslutninga"/"monthly closing"/"Monatsabschluss"/"cierre mensual"/"clôture mensuelle" tasks):
 This is a MONTH-END closing — NOT year-end. Post entries for the specified month.
 
 Step 1: Look up ALL needed accounts FIRST.
   GET /ledger/account?fields=id,number,name — get full chart of accounts.
   CRITICAL: Account numbers ≠ account IDs! Always look up the id by number.
 
-Step 2: ACCRUAL REVERSAL (if requested).
+Step 2: ACCRUAL REVERSAL / PERIODIZATION (if requested — "periodiser"/"periodisering"/"forskuddsbetalt").
   Match the prepaid account to its correct EXPENSE account:
   - 1700 (Forskuddsbetalt leie) → 6300 (Leie lokale) = rent expense
   - 1710 (Forskuddsbetalt rentekostnad) → 8150 or 8170 (Rentekostnad) = interest expense
   - 1720 (Forskuddsbetalt forsikring) → 6400 (Forsikring) = insurance expense
   - 1750 (Forskuddsbetalt annet) → the relevant expense account
-  WRONG: Do NOT use depreciation account (6010, 6030) for accrual reversal! Those are ONLY for depreciation!
+  WRONG: Do NOT use depreciation account (6010, 6020, 6030) for accrual reversal! Those are ONLY for depreciation!
   WRONG: Do NOT use salary account (5000) for accrual reversal!
   If the task says "konto 1710 til kostnadskonto" the expense account is 8150/8170 (interest), NOT 6030 (depreciation)!
   Post voucher: Debit EXPENSE account (positive), Credit PREPAID account (negative).
   Amount = the monthly accrual amount from the task.
 
-Step 3: MONTHLY DEPRECIATION (if requested).
+Step 3: MONTHLY DEPRECIATION (if requested — "avskriving"/"avskrivning"/"depreciation"/"Abschreibung").
   monthly_amount = purchase_price / useful_life_years / 12. Round to 2 decimals.
-  Example: 243750 / 7 / 12 = 2901.79
-  If the task specifies a depreciation account (e.g. 6030), use THAT account — not 6010.
-  Post voucher: Debit depreciation expense (e.g. 6010 or the account from the task), Credit accumulated depreciation (1209) or asset account directly.
+  Example: 278500 / 4 / 12 = 5802.08
+  If the task specifies a depreciation EXPENSE account (e.g. "til konto 6020"), use THAT account for the DEBIT.
+  The CREDIT goes to the ACCUMULATED DEPRECIATION account or the ASSET account itself.
+  Common mappings:
+  - Asset 1200 (Maskiner og anlegg) → Credit 1209 (Akkumulerte avskrivninger) if it exists, otherwise credit 1200 directly
+  - Asset 1000-1099 (Immaterielle) → Credit 1009 if it exists, or try the asset account
+  PROCEDURE: GET /ledger/account?number=1209 to check if accumulated depreciation account exists.
+  If it exists (fullResultSize > 0), credit 1209. If NOT (fullResultSize = 0), credit the asset account directly.
+  Post voucher: Debit depreciation expense (positive), Credit accumulated depreciation or asset (negative).
 
-Step 4: SALARY PROVISION (if requested).
-  Debit salary expense (e.g. 5000), Credit accrued salaries (e.g. 2930 or the account specified).
-  Use the amount from the task (or a reasonable estimate based on existing salary data).
+Step 4: SALARY PROVISION / ACCRUAL (if requested — "lønnsavsetning"/"lønnsavsetjing"/"salary accrual").
+  Debit salary expense (e.g. 5000 or the account specified), Credit accrued salaries (e.g. 2900, 2930 or the account specified).
+  For the AMOUNT: use the amount from the task if specified. If NO amount is given in the task:
+  - GET /salary/transaction to check for recent salary runs — use that monthly amount
+  - If no salary data exists, look up the employee's salary configuration or use a reasonable default
+  - NEVER invent a random large number. If unsure, use 30000-35000 as a reasonable monthly salary estimate.
 
 Step 5: OTHER PROVISIONS (if requested). Post each as the task specifies.
 
 CRITICAL: Post EACH type of entry as a SEPARATE voucher (not all in one voucher).
 CRITICAL: Use the LAST day of the month as the voucher date (e.g. 2026-03-31 for March).
 CRITICAL: Do NOT confuse accounts — each entry type uses its own specific expense account.
+CRITICAL: Read the task carefully — if it mentions specific ACCOUNT NUMBERS, use those exact accounts!
 
 SALARY / PAYROLL WORKFLOW (for "paie"/"lønn"/"salary"/"Gehalt"/"salario"/"lön"/"payroll" tasks):
 The task will ask you to run payroll for an employee with a base salary and possibly a bonus or other additions.
@@ -643,6 +653,10 @@ For bonus, use salary type with number "2002" (Bonus).
 EMPLOYEE WORKFLOW:
 IMPORTANT: The sandbox has 1-2 admin employees with GENERIC names like "Admin NM". They are NEVER the person mentioned in the task!
 When the task mentions a person by name (e.g. "João Almeida (joao.almeida@example.org)"), you MUST create or update an employee with that exact name.
+CRITICAL NAME-EMAIL MATCHING: If the task says "Gabriel Richard (gabriel.richard@example.org)", then firstName="Gabriel" and lastName="Richard". The FIRST part of the email (before the dot) is ALWAYS the firstName. If you create multiple employees, be VERY CAREFUL not to swap their names!
+  Example: "Gabriel Richard (gabriel.richard@example.org)" → firstName must be "Gabriel"
+           "Chloé Richard (chloe.richard@example.org)" → firstName must be "Chloé"
+  WRONG: firstName="Chloé" with email "gabriel.richard@..." — this is SWAPPED!
 
 RECOMMENDED approach:
   1. If the task provides an EMAIL for the person: FIRST try POST /employee with {firstName, lastName, email}.
@@ -1498,6 +1512,37 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         except Exception as e:
             print(f"  [pre] Ledger correction pre-scan failed: {e}", flush=True)
 
+    # Pre-check for monthly/year-end closing tasks: pre-fetch chart of accounts to save iterations
+    closing_keywords = ["closing", "avslutning", "avslutninga", "periodiser", "periodisering",
+                        "avskriving", "avskrivning", "depreciation", "abschreibung", "amortissement",
+                        "clôture", "encerramento", "cierre", "månadsavslut", "månavslutninga",
+                        "lønnsavsetning", "lønnsavsetjing", "salary accrual", "salary provision",
+                        "monatsabschluss", "årsavslutning", "årsoppgjør", "year-end"]
+    closing_pre_info = ""
+    if any(kw in prompt_lower for kw in closing_keywords):
+        print("  [pre] Monthly/year-end closing task detected — pre-fetching accounts...", flush=True)
+        try:
+            acct_resp = call_tripletex(base_url, auth, "GET", "/ledger/account",
+                                       params={"fields": "id,number,name"})
+            accounts = acct_resp.get("values", [])
+            if accounts:
+                closing_pre_info += f"\n\nPRE-SCANNED ACCOUNT DATA ({len(accounts)} accounts — use these IDs directly, do NOT re-fetch):"
+                key_accounts = [a for a in accounts if a.get("number") in (
+                    1200, 1209, 1700, 1710, 1720, 1750, 2400, 2900, 2930, 2960,
+                    5000, 6010, 6020, 6030, 6300, 6400, 8150, 8170, 1920)]
+                for a in key_accounts:
+                    closing_pre_info += f"\n  Account {a.get('number')}: id={a.get('id')} ({a.get('name', '')})"
+                if not key_accounts:
+                    # Fallback: show all accounts in common ranges
+                    for a in accounts:
+                        n = a.get("number", 0)
+                        if (1000 <= n <= 1999) or (2900 <= n <= 2999) or (5000 <= n <= 5099) or (6000 <= n <= 6999) or (8100 <= n <= 8199):
+                            closing_pre_info += f"\n  Account {n}: id={a.get('id')} ({a.get('name', '')})"
+                closing_pre_info += "\n\n  CRITICAL: Use the account IDs above directly. Do NOT look up accounts by number again — this wastes iterations!"
+                print(f"  [pre] Pre-scan complete: {len(accounts)} accounts, {len(key_accounts)} key accounts found", flush=True)
+        except Exception as e:
+            print(f"  [pre] Closing pre-scan failed: {e}", flush=True)
+
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     today_year = today[:4]
     system_prompt = SYSTEM_PROMPT_TEMPLATE.replace("{today}", today).replace("{today_year}", today_year)
@@ -1505,7 +1550,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         {"role": "system", "content": system_prompt},
     ]
 
-    user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates.{salary_pre_info}{ledger_pre_info}"
+    user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates.{salary_pre_info}{ledger_pre_info}{closing_pre_info}"
     vision_parts = []  # For image vision inputs
     if files:
         user_content += f"\n\nAttached files ({len(files)}):"
@@ -2004,6 +2049,44 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         "content": json.dumps({"error": err_msg, "_status_code": 404}),
                     })
                     continue
+                # Auto-fix: detect and correct name-email mismatch on POST /employee
+                # GPT sometimes assigns the wrong person's name when creating multiple employees
+                if args["method"] == "POST" and args["path"].rstrip("/") == "/employee" and req_body:
+                    _em = req_body.get("email", "")
+                    _fn = req_body.get("firstName", "")
+                    _ln = req_body.get("lastName", "")
+                    if _em and _fn and _ln and "@" in _em:
+                        _email_local = _em.split("@")[0].lower()
+                        _email_parts = re.split(r'[.\-_]', _email_local)  # e.g. ["gabriel", "richard"]
+                        if len(_email_parts) >= 2:
+                            _ep0 = _email_parts[0]  # expected first name from email
+                            # Normalize for accent-insensitive comparison
+                            _fn_norm = _fn.lower()
+                            for _ac, _pl in [("é","e"),("è","e"),("ê","e"),("ë","e"),("ö","o"),("ø","o"),("å","a"),("ä","a"),("ü","u"),("ñ","n"),("ç","c")]:
+                                _fn_norm = _fn_norm.replace(_ac, _pl)
+                            _ep0_norm = _ep0
+                            for _ac, _pl in [("é","e"),("è","e"),("ê","e"),("ë","e"),("ö","o"),("ø","o"),("å","a"),("ä","a"),("ü","u"),("ñ","n"),("ç","c")]:
+                                _ep0_norm = _ep0_norm.replace(_ac, _pl)
+                            # Check if firstName matches the first part of the email
+                            _fn_matches = (_fn_norm[:3] == _ep0_norm[:3]) or _ep0_norm.startswith(_fn_norm) or _fn_norm.startswith(_ep0_norm)
+                            if not _fn_matches:
+                                # firstName doesn't match email! Derive correct firstName from email
+                                _correct_fn = _ep0.capitalize()
+                                # Try to preserve accents: check if original task prompt has the accented version
+                                print(f"    │  [fix] name-email mismatch: firstName='{_fn}' doesn't match email '{_em}' (expected '{_correct_fn}')", flush=True)
+                                req_body["firstName"] = _correct_fn
+                                # If lastName also doesn't match ep1, fix it too
+                                _ln_norm = _ln.lower()
+                                for _ac, _pl in [("é","e"),("è","e"),("ê","e"),("ë","e"),("ö","o"),("ø","o"),("å","a"),("ä","a"),("ü","u"),("ñ","n"),("ç","c")]:
+                                    _ln_norm = _ln_norm.replace(_ac, _pl)
+                                _ep1 = _email_parts[1]
+                                _ep1_norm = _ep1
+                                for _ac, _pl in [("é","e"),("è","e"),("ê","e"),("ë","e"),("ö","o"),("ø","o"),("å","a"),("ä","a"),("ü","u"),("ñ","n"),("ç","c")]:
+                                    _ep1_norm = _ep1_norm.replace(_ac, _pl)
+                                _ln_matches = (_ln_norm[:3] == _ep1_norm[:3]) or _ep1_norm.startswith(_ln_norm) or _ln_norm.startswith(_ep1_norm)
+                                if not _ln_matches:
+                                    req_body["lastName"] = _ep1.capitalize()
+                                    print(f"    │  [fix] also fixed lastName to '{_ep1.capitalize()}'", flush=True)
                 # Auto-fix: ensure isCustomer:true on POST /customer
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/customer" and req_body:
                     if "isCustomer" not in req_body:
@@ -2050,26 +2133,41 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     print(f"    │  [fix] fetched version={cur_ver} for PUT {args['path']}", flush=True)
                             except Exception as e:
                                 print(f"    │  [fix] could not fetch version for PUT: {e}", flush=True)
-                # Auto-fix: supplier invoice voucher postings — amount→amountGross
+                # Auto-fix: supplier invoice voucher postings — comprehensive fixes
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/supplierInvoice" and req_body:
                     voucher = req_body.get("voucher", {})
                     postings = voucher.get("postings", [])
-                    for p in postings:
+                    si_date = voucher.get("date") or req_body.get("invoiceDate") or today
+                    si_supplier_id = (req_body.get("supplier") or {}).get("id")
+                    for idx, p in enumerate(postings):
                         # Fix amount field names: amount→amountGross, amountCurrency→amountGrossCurrency
                         if "amount" in p and "amountGross" not in p:
                             p["amountGross"] = p.pop("amount")
-                            print(f"    │  [fix] supplierInvoice posting: amount → amountGross", flush=True)
+                            print(f"    │  [fix] supplierInvoice posting[{idx}]: amount → amountGross", flush=True)
                         if "amountCurrency" in p and "amountGrossCurrency" not in p:
                             p["amountGrossCurrency"] = p.pop("amountCurrency")
-                            print(f"    │  [fix] supplierInvoice posting: amountCurrency → amountGrossCurrency", flush=True)
+                            print(f"    │  [fix] supplierInvoice posting[{idx}]: amountCurrency → amountGrossCurrency", flush=True)
                         # Ensure amountGrossCurrency matches amountGross if missing
                         if "amountGross" in p and "amountGrossCurrency" not in p:
                             p["amountGrossCurrency"] = p["amountGross"]
-                            print(f"    │  [fix] supplierInvoice posting: added amountGrossCurrency", flush=True)
-                        # Ensure row is >= 1
-                        if p.get("row", 1) == 0:
-                            p["row"] = postings.index(p) + 1
-                            print(f"    │  [fix] supplierInvoice posting: row 0 → {p['row']}", flush=True)
+                            print(f"    │  [fix] supplierInvoice posting[{idx}]: added amountGrossCurrency", flush=True)
+                        # Ensure row is sequential >= 1
+                        if "row" not in p or p.get("row", 1) == 0:
+                            p["row"] = idx + 1
+                            print(f"    │  [fix] supplierInvoice posting[{idx}]: set row={idx+1}", flush=True)
+                        # Ensure each posting has date
+                        if "date" not in p:
+                            p["date"] = si_date
+                            print(f"    │  [fix] supplierInvoice posting[{idx}]: added date={si_date}", flush=True)
+                        # Ensure credit posting (negative amount) has supplier reference
+                        amt = p.get("amountGross", 0)
+                        if amt and float(amt) < 0 and "supplier" not in p and si_supplier_id:
+                            p["supplier"] = {"id": si_supplier_id}
+                            print(f"    │  [fix] supplierInvoice posting[{idx}]: added supplier ref on credit posting", flush=True)
+                        # Ensure vatType on debit posting (positive amount)
+                        if amt and float(amt) > 0 and "vatType" not in p:
+                            p["vatType"] = {"id": 1}  # default: 25% input VAT
+                            print(f"    │  [fix] supplierInvoice posting[{idx}]: added vatType={{id:1}} (25% input VAT)", flush=True)
                 # Auto-fix: perDiemCompensation — find correct rateCategory for the travel expense year
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/travelExpense/perDiemCompensation" and req_body:
                     te_ref_id = req_body.get("travelExpense", {}).get("id")
@@ -2519,12 +2617,13 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     si_amount_ex = si_val.get("amountExcludingVat", -1)
                     if si_amount == 0 and si_amount_ex == 0:
                         result["_warning"] = (
-                            "WARNING: Supplier invoice was created but amount=0! "
-                            "This means the voucher postings were EMPTY or malformed. "
-                            "The invoice is BROKEN. You need to check: "
-                            "1) Did you include voucher.postings with BOTH debit and credit? "
-                            "2) Did you use amountGross (not amount) for the amounts? "
-                            "3) Delete this invoice and recreate it with proper postings."
+                            "CRITICAL WARNING: Supplier invoice was created but amount=0! "
+                            "The voucher postings were EMPTY or malformed — the invoice is BROKEN. "
+                            "DO NOT create a separate correction voucher — that does NOT fix the invoice! "
+                            "Instead: 1) Delete this broken invoice if possible, 2) Recreate it with "
+                            "POST /supplierInvoice including BOTH debit and credit postings in voucher.postings. "
+                            "Make sure each posting has: amountGross, amountGrossCurrency, date, row, account.id. "
+                            "Debit posting: positive amountGross + vatType. Credit posting: negative amountGross + supplier.id."
                         )
                         print(f"    │  [warn] supplier invoice created with amount=0 — postings likely missing/broken", flush=True)
 
