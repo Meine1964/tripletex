@@ -551,18 +551,22 @@ Step 1: Look up ALL needed accounts FIRST.
   CRITICAL: Account numbers ≠ account IDs! Always look up the id by number.
 
 Step 2: ACCRUAL REVERSAL (if requested).
-  Match the prepaid account to its correct EXPENSE account by name:
+  Match the prepaid account to its correct EXPENSE account:
   - 1700 (Forskuddsbetalt leie) → 6300 (Leie lokale) = rent expense
   - 1710 (Forskuddsbetalt rentekostnad) → 8150 or 8170 (Rentekostnad) = interest expense
   - 1720 (Forskuddsbetalt forsikring) → 6400 (Forsikring) = insurance expense
   - 1750 (Forskuddsbetalt annet) → the relevant expense account
+  WRONG: Do NOT use depreciation account (6010, 6030) for accrual reversal! Those are ONLY for depreciation!
+  WRONG: Do NOT use salary account (5000) for accrual reversal!
+  If the task says "konto 1710 til kostnadskonto" the expense account is 8150/8170 (interest), NOT 6030 (depreciation)!
   Post voucher: Debit EXPENSE account (positive), Credit PREPAID account (negative).
   Amount = the monthly accrual amount from the task.
 
 Step 3: MONTHLY DEPRECIATION (if requested).
   monthly_amount = purchase_price / useful_life_years / 12. Round to 2 decimals.
   Example: 243750 / 7 / 12 = 2901.79
-  Post voucher: Debit depreciation expense (e.g. 6010), Credit accumulated depreciation (1209) or asset account directly.
+  If the task specifies a depreciation account (e.g. 6030), use THAT account — not 6010.
+  Post voucher: Debit depreciation expense (e.g. 6010 or the account from the task), Credit accumulated depreciation (1209) or asset account directly.
 
 Step 4: SALARY PROVISION (if requested).
   Debit salary expense (e.g. 5000), Credit accrued salaries (e.g. 2930 or the account specified).
@@ -809,8 +813,25 @@ Step 5: Register timesheet entries for each employee.
   First GET /activity to find a project activity (look for isProjectActivity:true, e.g. "Fakturerbart arbeid").
 
 Step 6: Register supplier costs (if applicable).
-  POST /supplierInvoice with supplier, invoiceNumber, invoiceDate, invoiceDueDate, and voucher with postings.
-  Use amountGross/amountGrossCurrency in postings (NOT amount/amountCurrency).
+  First create or find the supplier: POST /supplier with name, organizationNumber, isSupplier:true.
+  Then look up accounts: GET /ledger/account?number=4300 (for external services cost) and GET /ledger/account?number=2400 (AP/leverandørgjeld).
+  POST /supplierInvoice with body:
+  {
+    "invoiceNumber": "INV-YYYYMMDD",
+    "invoiceDate": "{today}",
+    "invoiceDueDate": "30 days later",
+    "supplier": {"id": SUPPLIER_ID},
+    "voucher": {
+      "date": "{today}",
+      "description": "Supplier cost from SUPPLIER_NAME",
+      "postings": [
+        {"row": 1, "date": "{today}", "amountGross": AMOUNT, "amountGrossCurrency": AMOUNT, "account": {"id": EXPENSE_ACCT_ID}, "vatType": {"id": 0}},
+        {"row": 2, "date": "{today}", "amountGross": -AMOUNT, "amountGrossCurrency": -AMOUNT, "account": {"id": ACCT_2400_ID}, "supplier": {"id": SUPPLIER_ID}}
+      ]
+    }
+  }
+  CRITICAL: Include BOTH debit (expense, positive) and credit (AP 2400, negative with supplier) postings!
+  Use amountGross/amountGrossCurrency (NOT amount/amountCurrency).
 
 Step 7: Create customer invoice.
   CRITICAL: For fixed-price projects (isFixedPrice=true), the invoice excl. VAT MUST equal the fixedprice!
@@ -1692,7 +1713,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         # Detect task type for targeted verification
                         _pl = prompt.lower()
                         _task_checks = ""
-                        if any(kw in _pl for kw in ["prosjektsyklusen", "project cycle", "projektzyklus", "cycle de projet", "ciclo del proyecto", "ciclo do projeto"]):
+                        if any(kw in _pl for kw in ["prosjektsyklusen", "project cycle", "projektzyklus", "cycle de projet", "ciclo del proyecto", "ciclo do projeto",
+                                                        "project lifecycle", "complete project", "fullständig projekt", "prosjektlivsløp"]):
                             _task_checks = (
                                 "TASK TYPE: Full project cycle (create project, register hours/costs, invoice).\n"
                                 "Check these SPECIFIC things:\n"
@@ -1733,6 +1755,26 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "- Payment type set (typically 'Privat utlegg')?\n"
                                 "- Travel expense amount > 0 after adding costs?\n"
                                 "- Do NOT require 'completing' or 'delivering' the travel expense — just creating it with costs is enough.\n"
+                            )
+                        elif any(kw in _pl for kw in ["encerramento mensal", "monthly closing", "månedsavslutning", "monatsabschluss", "cierre mensual",
+                                                        "månavslutninga", "månadsavslutning", "månadleg", "periodiser",
+                                                        "encerramento anual", "årsoppgjør", "year-end", "jahresabschluss", "cierre anual",
+                                                        "depreciation", "avskriving", "avskrivning", "depreciação", "abschreibung",
+                                                        "accrual", "acréscimo", "periodisering"]):
+                            _task_checks = (
+                                "TASK TYPE: Monthly or year-end closing / depreciation.\n"
+                                "Check these SPECIFIC things:\n"
+                                "- EACH type of entry (depreciation, accrual reversal, salary provision, tax) posted as SEPARATE voucher?\n"
+                                "- Depreciation: correct MONTHLY amount = cost / years / 12 (or ANNUAL if year-end)?\n"
+                                "  E.g. 243750 / 7 / 12 = 2901.79 per month, or 243750 / 7 = 34821.43 per year.\n"
+                                "- Depreciation: debit the EXPENSE account from the task (e.g. 6010, 6030), credit accumulated depreciation (1209) or asset account?\n"
+                                "- Accrual reversal: correct EXPENSE account matching the prepaid account type?\n"
+                                "  1710 (prepaid interest) → interest expense (8150/8170), NOT depreciation (6010/6030)!\n"
+                                "  1700 (prepaid rent) → rent expense (6300), NOT salary (5000) or depreciation!\n"
+                                "  1720 (prepaid insurance) → insurance expense (6400)!\n"
+                                "- Salary provision: debit salary expense, credit accrued salaries?\n"
+                                "- All voucher postings balanced (sum to zero)?\n"
+                                "- Correct date used (last day of month for monthly, or year-end)?\n"
                             )
                         elif any(kw in _pl for kw in ["integrasjon", "onboarding", "tilbudsbrev", "offer letter", "carta de oferta", "funcionario", "integracao"]):
                             _task_checks = (
@@ -1821,24 +1863,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "- Invoice total correct (sum of each product×qty with its specific VAT)?\n"
                                 "- Invoice sent if task says send?\n"
                             )
-                        elif any(kw in _pl for kw in ["encerramento mensal", "monthly closing", "månedsavslutning", "monatsabschluss", "cierre mensual",
-                                                        "encerramento anual", "årsoppgjør", "year-end", "jahresabschluss", "cierre anual",
-                                                        "depreciation", "avskriving", "depreciação", "abschreibung",
-                                                        "accrual", "acréscimo", "periodisering"]):
-                            _task_checks = (
-                                "TASK TYPE: Monthly or year-end closing / depreciation.\n"
-                                "Check these SPECIFIC things:\n"
-                                "- EACH type of entry (depreciation, accrual reversal, salary provision, tax) posted as SEPARATE voucher?\n"
-                                "- Depreciation: correct MONTHLY amount = cost / years / 12 (or ANNUAL if year-end)?\n"
-                                "  E.g. 243750 / 7 / 12 = 2901.79 per month, or 243750 / 7 = 34821.43 per year.\n"
-                                "- Depreciation: debit expense account (e.g. 6010), credit accumulated depreciation (1209) or asset account?\n"
-                                "- Accrual reversal: correct EXPENSE account matching the prepaid account type?\n"
-                                "  1710 (prepaid interest) → interest expense (8150/8170), NOT salary (5000)!\n"
-                                "  1700 (prepaid rent) → rent expense (6300), NOT salary (5000)!\n"
-                                "- Salary provision: debit salary expense, credit accrued salaries?\n"
-                                "- All voucher postings balanced (sum to zero)?\n"
-                                "- Correct date used (last day of month for monthly, or year-end)?\n"
-                            )
+                        # closing/depreciation checks already handled above (before salary)
 
                         verify_prompt = (
                             f"TASK: {prompt}\n\n"
