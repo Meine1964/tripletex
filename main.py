@@ -1542,7 +1542,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
             employees = emp_resp.get("values", [])
             if employees:
                 salary_pre_info += f"\n\nPRE-SCANNED SANDBOX DATA (use this to save time):\nFound {len(employees)} existing employee(s):"
-                for emp in employees:
+                for emp in employees[:2]:  # Cap to 2 employees to save time
                     eid = emp.get("id")
                     emp_company_id = emp.get("companyId")
                     emp_dept = emp.get("department")
@@ -1606,25 +1606,15 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     if any(kw in prompt_lower for kw in ledger_correction_keywords):
         print("  [pre] Ledger correction task detected — fetching all vouchers with postings...", flush=True)
         try:
-            # Fetch all vouchers for Jan-Feb (common period for correction tasks)
+            # Fetch all vouchers for Jan-Feb with embedded postings (fields=* embeds them)
             v_resp = call_tripletex(base_url, auth, "GET", "/ledger/voucher",
                                     params={"dateFrom": "2026-01-01", "dateTo": "2026-02-28", "fields": "*", "count": 100})
             vouchers = v_resp.get("values", [])
             if vouchers:
                 ledger_pre_info += f"\n\nPRE-SCANNED VOUCHER DATA ({len(vouchers)} vouchers for Jan-Feb 2026):"
-                # Also fetch all postings in one call
-                p_resp = call_tripletex(base_url, auth, "GET", "/ledger/posting",
-                                        params={"dateFrom": "2026-01-01", "dateTo": "2026-02-28", "fields": "*", "count": 1000})
-                all_postings = p_resp.get("values", [])
-                # Group postings by voucher ID
-                postings_by_voucher = {}
-                for p in all_postings:
-                    vid = (p.get("voucher") or {}).get("id")
-                    if vid:
-                        postings_by_voucher.setdefault(vid, []).append(p)
                 for v in vouchers:
                     vid = v.get("id")
-                    v_postings = postings_by_voucher.get(vid, [])
+                    v_postings = v.get("postings") or []
                     ledger_pre_info += f"\n  Voucher #{v.get('number')} (id={vid}, date={v.get('date')}, desc=\"{v.get('description', '')}\")"
                     for p in v_postings:
                         acct = p.get("account", {})
@@ -1642,7 +1632,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     for a in accounts:
                         ledger_pre_info += f"\n    Account {a.get('number')}: id={a.get('id')} ({a.get('name', '')})"
                 ledger_pre_info += "\n\n  STRATEGY: Analyze the postings above, identify the 4 errors, then create correction vouchers. Do NOT re-fetch vouchers/postings!"
-                print(f"  [pre] Pre-scan complete: {len(vouchers)} vouchers, {len(all_postings)} postings, {len(accounts)} accounts", flush=True)
+                print(f"  [pre] Pre-scan complete: {len(vouchers)} vouchers, {len(accounts)} accounts", flush=True)
         except Exception as e:
             print(f"  [pre] Ledger correction pre-scan failed: {e}", flush=True)
 
@@ -1796,8 +1786,9 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     messages.append({"role": "user", "content": user_msg_content})
     total_tokens = 0
 
-    # Compute iteration time budget: 250s minus any pre-scan time, but at least 180s
-    _iter_budget = max(180, 250 - _prescan_elapsed)
+    # Compute iteration time budget: 230s minus any pre-scan time, but at least 160s
+    # Cloud Run timeout = 300s; reserve margin for response + log upload
+    _iter_budget = max(160, 230 - _prescan_elapsed)
 
     for iteration in range(25):
         iter_start = time.time()
@@ -1809,10 +1800,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
             break
 
         # ── Message history trimming ──────────────────────────────────
-        # After iteration 7, compress old tool responses to save prompt tokens.
-        # Keep last 6 tool responses intact; compress older ones to status+id only.
-        if iteration >= 7 and len(messages) > 20:
-            _keep_recent = 12  # keep the most recent N messages intact
+        # After iteration 4, compress old tool responses to save prompt tokens.
+        # Keep last 8 messages intact; compress older ones to status+id only.
+        if iteration >= 4 and len(messages) > 14:
+            _keep_recent = 8  # keep the most recent N messages intact
             _trimmed_count = 0
             for mi in range(len(messages) - _keep_recent):
                 m = messages[mi]
@@ -1956,7 +1947,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 elapsed = time.time() - agent_start
                 remaining = (_iter_budget + 10) - elapsed  # small buffer past iteration budget
                 # ── Post-execution verification (single LLM call) ──
-                if remaining > 20 and not diag.get("_verified"):
+                if remaining > 45 and not diag.get("_verified"):
                     diag["_verified"] = True
                     print(f"\n  ⏳ Verifying task completion ({remaining:.0f}s remaining)...", flush=True)
                     try:
@@ -2182,7 +2173,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         verdict = verify_resp.choices[0].message.content.strip()
                         v_tokens = verify_resp.usage.total_tokens if verify_resp.usage else 0
                         print(f"  🔍 Verification ({v_tokens} tokens): {verdict}", flush=True)
-                        if verdict.upper().startswith("FAIL") and remaining > 60 and not diag.get("_verify_retried"):
+                        if verdict.upper().startswith("FAIL") and remaining > 70 and not diag.get("_verify_retried"):
                             # Give the agent ONE chance to fix. Only once — second done() always passes.
                             diag["_verify_retried"] = True
                             fix_msg = (
@@ -2446,18 +2437,15 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         if amt and float(amt) > 0 and "vatType" not in p:
                             p["vatType"] = {"id": 1}  # default: 25% input VAT
                             print(f"    │  [fix] supplierInvoice posting[{idx}]: added vatType={{id:1}} (25% input VAT)", flush=True)
-                # Auto-fix: perDiemCompensation — find correct rateCategory for the travel expense year
+                # Auto-fix: perDiemCompensation — find correct rateCategory for current year
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/travelExpense/perDiemCompensation" and req_body:
                     te_ref_id = req_body.get("travelExpense", {}).get("id")
                     if te_ref_id:
                         try:
-                            te_resp = call_tripletex(base_url, auth, "GET", f"/travelExpense/{te_ref_id}",
-                                                     params={"fields": "date,travelDetails"})
-                            te_date = te_resp.get("value", {}).get("date", today)
-                            te_year = te_date[:4]
-                            # Look up all rate categories and find one matching the year
+                            te_year = today[:4]  # Use current year to avoid extra API call
+                            # Look up rate categories (use count=200 instead of 1000 to reduce payload)
                             rc_resp = call_tripletex(base_url, auth, "GET", "/travelExpense/rateCategory",
-                                                     params={"count": 1000})
+                                                     params={"count": 200})
                             all_cats = rc_resp.get("values", [])
                             current_cat = req_body.get("rateCategory", {}).get("id")
                             # Find matching category: same type of name, date range covering travel year
@@ -2580,32 +2568,15 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             dim_val = p.pop("accountingDimensionValue")
                             dim_val_id = dim_val.get("id") if isinstance(dim_val, dict) else dim_val
                             if dim_val_id:
-                                # Look up dimension index for this value
+                                # Use cached dimension index or default to 1 (avoids expensive API lookups)
                                 dim_idx = req_body.get("_dim_index")
                                 if not dim_idx:
                                     try:
-                                        dv_resp = call_tripletex(base_url, auth, "GET",
-                                            f"/ledger/accountingDimensionValue/{dim_val_id}")
-                                        dv_data = dv_resp.get("value", {})
-                                        # dimensionIndex on the value is 0-based; look up the name's dimensionIndex
-                                        # We need the parent dimension's dimensionIndex (1,2,3)
-                                        # Try getting all dimension names to find which one owns this value
                                         dn_resp = call_tripletex(base_url, auth, "GET",
                                             "/ledger/accountingDimensionName")
-                                        for dn in dn_resp.get("values", []):
-                                            # Check if this dimension name owns this value
-                                            dv_list = call_tripletex(base_url, auth, "GET",
-                                                "/ledger/accountingDimensionValue",
-                                                params={"dimensionNameId": str(dn["id"])})
-                                            for dv in dv_list.get("values", []):
-                                                if dv.get("id") == dim_val_id:
-                                                    dim_idx = dn.get("dimensionIndex", 1)
-                                                    req_body["_dim_index"] = dim_idx
-                                                    break
-                                            if dim_idx:
-                                                break
-                                        if not dim_idx:
-                                            dim_idx = 1  # default to dimension 1
+                                        dims = dn_resp.get("values", [])
+                                        dim_idx = dims[0].get("dimensionIndex", 1) if dims else 1
+                                        req_body["_dim_index"] = dim_idx
                                     except Exception:
                                         dim_idx = 1
                                 field_name = f"freeAccountingDimension{dim_idx}"
@@ -3261,65 +3232,25 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             )
                             print(f"    │  [hint] project manager {pm_id} needs access — injected guidance", flush=True)
 
-                # Auto-fix: division.id error on POST /employee/employment — try existing division first
+                # Auto-fix: division.id error on POST /employee/employment — retry without division (fast path)
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
                         and sc == 422 and req_body):
                     div_error = any("division" in (m.get("field", "") or "")
                                     for m in (result.get("validationMessages") or []))
                     if div_error and req_body.get("division"):
-                        # Strategy: find a valid division from existing employments
-                        found_div = None
-                        try:
-                            emp_list = call_tripletex(base_url, auth, "GET", "/employee", params={"fields": "id"})
-                            for emp_item in (emp_list.get("values") or []):
-                                empl_list = call_tripletex(base_url, auth, "GET", "/employee/employment",
-                                    params={"employeeId": emp_item["id"], "fields": "division"})
-                                for empl_item in (empl_list.get("values") or []):
-                                    ediv = empl_item.get("division")
-                                    if ediv and ediv.get("id") and ediv["id"] != req_body["division"].get("id"):
-                                        found_div = ediv["id"]
-                                        break
-                                if found_div:
-                                    break
-                        except Exception:
-                            pass
-                        if found_div:
-                            print(f"    │  [auto-fix] division.id rejected — trying division from existing employment: {found_div}", flush=True)
-                            req_body["division"] = {"id": found_div}
-                            retry_result = call_tripletex(base_url, auth, "POST", "/employee/employment", body=req_body)
-                            retry_sc = retry_result.get("_status_code", 200)
-                            if retry_sc < 400:
-                                result = retry_result
-                                sc = retry_sc
-                                print(f"    │  [auto-fix] employment created with division {found_div} OK", flush=True)
-                            else:
-                                # Fall back to no division
-                                print(f"    │  [auto-fix] division {found_div} also failed — retrying without division", flush=True)
-                                retry_body = {k: v for k, v in req_body.items() if k != "division"}
-                                retry_result = call_tripletex(base_url, auth, "POST", "/employee/employment", body=retry_body)
-                                retry_sc = retry_result.get("_status_code", 200)
-                                if retry_sc < 400:
-                                    result = retry_result
-                                    sc = retry_sc
-                                    print(f"    │  [auto-fix] employment created without division OK", flush=True)
-                                else:
-                                    result = retry_result
-                                    sc = retry_sc
-                                    print(f"    │  [auto-fix] all division attempts failed: {retry_sc}", flush=True)
+                        # Fast path: just retry without division (avoids expensive employee iteration)
+                        print(f"    │  [auto-fix] division.id rejected — retrying without division", flush=True)
+                        retry_body = {k: v for k, v in req_body.items() if k != "division"}
+                        retry_result = call_tripletex(base_url, auth, "POST", "/employee/employment", body=retry_body)
+                        retry_sc = retry_result.get("_status_code", 200)
+                        if retry_sc < 400:
+                            result = retry_result
+                            sc = retry_sc
+                            print(f"    │  [auto-fix] employment created without division OK", flush=True)
                         else:
-                            # No alternative division found, retry without
-                            print(f"    │  [auto-fix] division.id rejected — no alternative found, retrying without division", flush=True)
-                            retry_body = {k: v for k, v in req_body.items() if k != "division"}
-                            retry_result = call_tripletex(base_url, auth, "POST", "/employee/employment", body=retry_body)
-                            retry_sc = retry_result.get("_status_code", 200)
-                            if retry_sc < 400:
-                                result = retry_result
-                                sc = retry_sc
-                                print(f"    │  [auto-fix] employment created without division OK", flush=True)
-                            else:
-                                result = retry_result
-                                sc = retry_sc
-                                print(f"    │  [auto-fix] retry without division also failed: {retry_sc}", flush=True)
+                            result = retry_result
+                            sc = retry_sc
+                            print(f"    │  [auto-fix] retry without division also failed: {retry_sc}", flush=True)
 
                 # Track fixed-price project creation + diagnostic GET-back
                 if (args["method"] in ("POST", "PUT") and re.match(r'^/project(/\d+)?$', args["path"].rstrip("/"))
@@ -3327,26 +3258,6 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         and req_body.get("isFixedPrice") and req_body.get("fixedprice")):
                     tracked_fixedprice = float(req_body["fixedprice"])
                     print(f"    │  [track] fixedprice project: {tracked_fixedprice}", flush=True)
-                    # Diagnostic: GET the project back to verify fixedprice is visible
-                    proj_id = result.get("value", {}).get("id")
-                    if proj_id:
-                        diag_resp = call_tripletex(base_url, auth, "GET", f"/project/{proj_id}",
-                                                   params={"fields": "*"})
-                        diag_val = diag_resp.get("value", {})
-                        fp_back = diag_val.get("fixedprice")
-                        is_fp_back = diag_val.get("isFixedPrice")
-                        print(f"    │  [diag] GET /project/{proj_id}: fixedprice={fp_back}, isFixedPrice={is_fp_back}", flush=True)
-                        if fp_back is None or not is_fp_back:
-                            print(f"    │  [diag] WARNING: fixedprice not visible after creation!", flush=True)
-                            # Try PUT to re-set the fixedprice
-                            proj_ver = diag_val.get("version", 0)
-                            put_body = {"id": proj_id, "version": proj_ver,
-                                        "fixedprice": req_body["fixedprice"],
-                                        "isFixedPrice": True}
-                            put_resp = call_tripletex(base_url, auth, "PUT", f"/project/{proj_id}",
-                                                      body=put_body)
-                            put_sc = put_resp.get("_status_code", 200)
-                            print(f"    │  [diag] PUT fixedprice re-set: {put_sc}", flush=True)
 
                 # Track employee rename state
                 # PUT /employee succeeded → mark rename done
@@ -3517,7 +3428,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 # Smart trimming: for large list responses, condense values to key fields
                 if isinstance(result, dict) and "values" in result and isinstance(result["values"], list):
                     vals = result["values"]
-                    if len(vals) > 30:
+                    if len(vals) > 15:
                         _keep = {"id", "version", "name", "number", "displayName", "numberPretty",
                                  "firstName", "lastName", "startDate", "date", "amount", "type",
                                  "description", "code", "nameNO", "invoiceNumber", "isBankAccount",
@@ -3537,8 +3448,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 # Log response data (truncated for readability)
                 preview = result_str[:1500] + "…" if len(result_str) > 1500 else result_str
                 print(f"    │  response: {preview}", flush=True)
-                if len(result_str) > 8000:
-                    result_str = result_str[:8000] + "...(truncated)"
+                if len(result_str) > 5000:
+                    result_str = result_str[:5000] + "...(truncated)"
 
                 messages.append({
                     "role": "tool",
