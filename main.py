@@ -1503,13 +1503,16 @@ def _extract_dob_from_prompt(prompt_text: str) -> str:
 
 
 def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
-    agent_start = time.time()
+    _prescan_start = time.time()
     diag = {"iterations": 0, "api_calls": [], "errors": [], "tokens": 0, "done": False}
 
     # Track employee rename state: when POST /employee fails, we need to PUT to rename
     pending_employee_rename = None  # {"firstName": ..., "lastName": ...} if rename needed
     employee_renamed = False  # True once PUT /employee has been done
     renamed_employee_ids = set()  # IDs already used for rename — don't overwrite
+
+    # Track repeated validation violations to escalate guidance
+    _put_no_body_count = 0
 
     # Track fixed-price project: auto-fix milestone product pricing (VAT-inclusive → ex-VAT)
     tracked_fixedprice = None  # float: the fixedprice from POST /project with isFixedPrice
@@ -1725,6 +1728,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
             except Exception as e:
                 print(f"  [pre] Account pre-scan failed: {e}", flush=True)
 
+    _prescan_elapsed = time.time() - _prescan_start
+    print(f"  [pre] Pre-scans completed in {_prescan_elapsed:.1f}s", flush=True)
+    agent_start = time.time()  # Start timing AFTER pre-scans
+
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     today_year = today[:4]
     system_prompt = SYSTEM_PROMPT_TEMPLATE.replace("{today}", today).replace("{today_year}", today_year)
@@ -1789,19 +1796,22 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     messages.append({"role": "user", "content": user_msg_content})
     total_tokens = 0
 
+    # Compute iteration time budget: 250s minus any pre-scan time, but at least 180s
+    _iter_budget = max(180, 250 - _prescan_elapsed)
+
     for iteration in range(25):
         iter_start = time.time()
-        # Safety: stop before Cloud Run's 300s timeout (log push is now in background)
+        # Safety: stop before Cloud Run's 300s timeout
         elapsed_total = time.time() - agent_start
-        if elapsed_total > 280:
-            print(f"\n  ⏰ TIME LIMIT — {elapsed_total:.0f}s elapsed, stopping to save log", flush=True)
+        if elapsed_total > _iter_budget:
+            print(f"\n  ⏰ TIME LIMIT — {elapsed_total:.0f}s elapsed (budget {_iter_budget:.0f}s), stopping", flush=True)
             diag["errors"].append(f"Time limit reached at {elapsed_total:.0f}s")
             break
 
         # ── Message history trimming ──────────────────────────────────
-        # After iteration 10, compress old tool responses to save prompt tokens.
+        # After iteration 7, compress old tool responses to save prompt tokens.
         # Keep last 6 tool responses intact; compress older ones to status+id only.
-        if iteration >= 10 and len(messages) > 20:
+        if iteration >= 7 and len(messages) > 20:
             _keep_recent = 12  # keep the most recent N messages intact
             _trimmed_count = 0
             for mi in range(len(messages) - _keep_recent):
@@ -1835,6 +1845,13 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         print(f"\n{'─'*50}", flush=True)
         print(f"  ITERATION {iteration+1}/25", flush=True)
         print(f"{'─'*50}", flush=True)
+
+        # Double-check time before expensive GPT call
+        _pre_gpt_elapsed = time.time() - agent_start
+        if _pre_gpt_elapsed > _iter_budget - 20:
+            print(f"\n  ⏰ TIME LIMIT (pre-GPT) — {_pre_gpt_elapsed:.0f}s, not enough time for another GPT call", flush=True)
+            diag["errors"].append(f"Time limit reached at {_pre_gpt_elapsed:.0f}s (pre-GPT)")
+            break
 
         try:
             response = client.chat.completions.create(
@@ -1921,14 +1938,25 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 print(f"    [{i+1}] {tc.function.name}({args_preview})", flush=True)
 
         for tool_call in msg.tool_calls:
+            # Time check inside tool loop
+            _tool_elapsed = time.time() - agent_start
+            if _tool_elapsed > _iter_budget and tool_call.function.name != "done":
+                print(f"  ⏰ TIME LIMIT in tool loop — {_tool_elapsed:.0f}s, skipping remaining tool calls", flush=True)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps({"error": "Time limit reached, task ending.", "_status_code": 408}),
+                })
+                continue
+
             name = tool_call.function.name
             args = json.loads(tool_call.function.arguments)
 
             if name == "done":
                 elapsed = time.time() - agent_start
-                remaining = 290 - elapsed  # 300s timeout, log push in background
+                remaining = (_iter_budget + 10) - elapsed  # small buffer past iteration budget
                 # ── Post-execution verification (single LLM call) ──
-                if remaining > 15 and not diag.get("_verified"):
+                if remaining > 20 and not diag.get("_verified"):
                     diag["_verified"] = True
                     print(f"\n  ⏳ Verifying task completion ({remaining:.0f}s remaining)...", flush=True)
                     try:
@@ -2154,7 +2182,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         verdict = verify_resp.choices[0].message.content.strip()
                         v_tokens = verify_resp.usage.total_tokens if verify_resp.usage else 0
                         print(f"  🔍 Verification ({v_tokens} tokens): {verdict}", flush=True)
-                        if verdict.upper().startswith("FAIL") and remaining > 30 and not diag.get("_verify_retried"):
+                        if verdict.upper().startswith("FAIL") and remaining > 60 and not diag.get("_verify_retried"):
                             # Give the agent ONE chance to fix. Only once — second done() always passes.
                             diag["_verify_retried"] = True
                             fix_msg = (
@@ -2820,10 +2848,24 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 f"Debit = positive, Credit = negative. Adjust amounts so they balance."
                             )
                 if violations:
+                    # Track put-no-body specifically for escalation
+                    _has_put_no_body = any("[put-no-body]" in v for v in violations)
+                    if _has_put_no_body:
+                        _put_no_body_count += 1
                     v_text = "\n".join(violations)
                     print(f"    │  [reject] {len(violations)} rule violation(s):", flush=True)
                     for v in violations:
                         print(f"    │    • {v}", flush=True)
+                    # Escalate after repeated put-no-body violations
+                    if _has_put_no_body and _put_no_body_count >= 3:
+                        v_text += (
+                            "\n\nYOU HAVE MADE THIS MISTAKE " + str(_put_no_body_count) + " TIMES. STOP and follow these EXACT steps:\n"
+                            "1. First do GET on the resource URL to retrieve current data\n"
+                            "2. From the GET response, extract 'id' and 'version'\n"
+                            "3. Build a PUT body with at minimum: {\"id\": <id>, \"version\": <version>, ...fields to change}\n"
+                            "4. Call PUT with that JSON body\n"
+                            "Do NOT call PUT without a body again."
+                        )
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
