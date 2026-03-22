@@ -1,0 +1,153 @@
+
+======================================================================
+  NEW TASK RECEIVED
+  Version: 9bd08b2
+======================================================================
+  Prompt: Reconcile the bank statement (attached CSV) against open invoices in Tripletex. Match incoming payments to customer invoices and outgoing payments to supplier invoices. Handle partial payments correctly.
+  Files:  1
+  URL:    https://tx-proxy-jwanbnu3pq-lz.a.run.app/v2
+    - files/bankutskrift_en_04.csv (text/csv)
+──────────────────────────────────────────────────────────────────────
+  [pre] Invoice/credit/payment task detected — ensuring bank account...
+    ┌─ API GET /invoice/settings
+    └─ 200 OK (1.3s) id=1019828
+  [bank] already ready
+  [pre] Bank account setup: OK
+  [pre] Account-related task detected — pre-fetching key accounts...
+    ┌─ API GET /ledger/account
+    │  params: {"fields": "id,number,name"}
+    └─ 200 OK (2.2s) [529 items]
+  [pre] Pre-scanned 14 key accounts
+  [pre] Pre-scans completed in 3.5s
+
+──────────────────────────────────────────────────
+  ITERATION 1/25
+──────────────────────────────────────────────────
+  Tokens: prompt=20684 completion=130 total_session=20814
+  Messages: 3 (76,551 chars)
+  Tool calls (3):
+    [1] tripletex_api({"method": "GET", "path": "/invoice", "params": {"invoiceDateFrom": "2000-01-01", "invoiceDateTo": "2030-12-31"}})
+    [2] tripletex_api({"method": "GET", "path": "/supplierInvoice", "params": {"invoiceDateFrom": "2000-01-01", "invoiceDateTo": "2030-12-31"}})
+    [3] tripletex_api({"method": "GET", "path": "/invoice/paymentType"})
+    ┌─ API GET /invoice
+    │  params: {"invoiceDateFrom": "2000-01-01", "invoiceDateTo": "2030-12-31"}
+    └─ 200 OK (1.6s) [5 items]
+    │  response: {"fullResultSize": 5, "from": 0, "count": 5, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 2147706386, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147706386", "invoiceNumber": 1, "invoiceDate": "2026-01-15", "customer": {"id": 108611736, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108611736"}, "creditedInvoice": 0, "isCredited": false, "invoiceDueDate": "2026-02-15", "kid": "", "invoiceComment": "", "comment": "", "orders": [{"id": 402085126, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402085126"}], "orderLines": [{"id": 1607618012, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607618012"}], "travelReports": [], "projectInvoiceDetails": [{"id": 1965832800, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/details/1965832800"}], "voucher": {"id": 609448829, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609448829"}, "deliveryDate": "2026-01-15", "amount": 4625.0, "amountCurrency": 4625.0, "amountExcludingVat": 3700.0, "amountExcludingVatCurrency": 3700.0, "amountRoundoff": 0.0, "amountRoundoffCurrency": 0.0, "amountOutstanding": 4625.0, "amountCurrencyOutstanding": 4625.0, "amountOutstandingTotal": 4625.0, "amountCurrencyOutstandingTotal": 4625.0, "sumRemits": 0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "isCreditNote": false, "isCharged": true, "isApproved": false, "postings": [{"id": 3846589764, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3846589764"}], "remin…
+    ┌─ API GET /supplierInvoice
+    │  params: {"invoiceDateFrom": "2000-01-01", "invoiceDateTo": "2030-12-31"}
+    └─ 200 OK (2.1s) [0 items]
+    │  response: {"fullResultSize": 0, "from": 0, "count": 0, "versionDigest": "Checksum not yet supported for this endpoint", "values": []}
+    ┌─ API GET /invoice/paymentType
+    └─ 200 OK (2.0s) [2 items]
+    │  response: {"fullResultSize": 2, "from": 0, "count": 2, "versionDigest": "'If-None-Match' header not specified", "values": [{"id": 40145672, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/paymentType/40145672", "description": "Kontant", "displayName": "Kontant", "debitAccount": {"id": 503358350, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/account/503358350"}, "creditAccount": null, "vatType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}, "sequence": 1, "customer": null, "supplier": null, "currencyId": 1, "currencyCode": "NOK"}, {"id": 40145673, "version": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/paymentType/40145673", "description": "Betalt til bank", "displayName": "Betalt til bank", "debitAccount": {"id": 503358353, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/account/503358353"}, "creditAccount": null, "vatType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}, "sequence": 2, "customer": null, "supplier": null, "currencyId": 1, "currencyCode": "NOK"}]}
+  Iteration 1 took 9.0s
+
+──────────────────────────────────────────────────
+  ITERATION 2/25
+──────────────────────────────────────────────────
+  Tokens: prompt=23079 completion=921 total_session=44814
+  GPT says: The bank statement reconciliation involves matching the transactions from the CSV file with the invoices in Tripletex. Here's the plan:
+
+### Incoming Payments (Customer Invoices)
+1. **Lewis Ltd / Faktura 1001**: 2312.50 NOK
+   - No matching invoice found in Tripletex for this amount.
+
+2. **Johnson Ltd / Faktura 1002**: 6312.50 NOK
+   - Matches with Invoice Number 2 for Johnson Ltd, amount 6312.50 NOK.
+
+3. **Brown Ltd / Faktura 1003**: 8250.00 NOK
+   - Matches with Invoice Number 3 for Brown Ltd,
+  Messages: 7 (84,218 chars)
+  Tool calls (5):
+    [1] tripletex_api({"method": "PUT", "path": "/invoice/2147706402/:payment", "params": {"paymentDate": "2026-01-19", "paymentTypeId": 40145673, "paidAmount": 6312.5, "paidAmountCurrency": 6312.5}})
+    [2] tripletex_api({"method": "PUT", "path": "/invoice/2147706418/:payment", "params": {"paymentDate": "2026-01-22", "paymentTypeId": 40145673, "paidAmount": 8250.0, "paidAmountCurrency": 8250.0}})
+    [3] tripletex_api({"method": "PUT", "path": "/invoice/2147706430/:payment", "params": {"paymentDate": "2026-01-24", "paymentTypeId": 40145673, "paidAmount": 5062.5, "paidAmountCurrency": 5062.5}})
+    [4] tripletex_api({"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-02-02", "description": "Bankgebyr", "postings": [{"row": 1, "date": "2026-02-02", "amountGross": 1762.74, "amountGrossCurrency": 1762.74, "account": {"id": 503358683}, "vatType": {"id": 0}}, {"row": 2, "date": "2026-02-02", "amountGross": -1762.74, "amountGrossCurrency": -1762.74, "account": {"id": 503358353}, "vatType": {"id": 0}}]}})
+    [5] tripletex_api({"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-02-04", "description": "Skattetrekk", "postings": [{"row": 1, "date": "2026-02-04", "amountGross": 982.45, "amountGrossCurrency": 982.45, "account": {"id": 503358418}, "vatType": {"id": 0}}, {"row": 2, "date": "2026-02-04", "amountGross": -982.45, "amountGrossCurrency": -982.45, "account": {"id": 503358353}, "vatType": {"id": 0}}]}})
+    ┌─ API PUT /invoice/2147706402/:payment
+    │  params: {"paymentDate": "2026-01-19", "paymentTypeId": 40145673, "paidAmount": 6312.5, "paidAmountCurrency": 6312.5}
+    └─ 200 OK (2.0s) id=2147706402
+    │  response: {"value": {"id": 2147706402, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147706402", "invoiceNumber": 2, "invoiceDate": "2026-01-15", "customer": {"id": 108611769, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108611769"}, "creditedInvoice": 0, "isCredited": false, "invoiceDueDate": "2026-02-15", "kid": "", "invoiceComment": "", "comment": "", "orders": [{"id": 402085138, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402085138"}], "orderLines": [{"id": 1607618024, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607618024"}], "travelReports": [], "projectInvoiceDetails": [{"id": 1965832809, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/details/1965832809"}], "voucher": {"id": 609448918, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609448918"}, "deliveryDate": "2026-01-15", "amount": 6312.5, "amountCurrency": 6312.5, "amountExcludingVat": 5050.0, "amountExcludingVatCurrency": 5050.0, "amountRoundoff": 0.0, "amountRoundoffCurrency": 0.0, "amountOutstanding": 0.0, "amountCurrencyOutstanding": 0.0, "amountOutstandingTotal": 0.0, "amountCurrencyOutstandingTotal": 0.0, "sumRemits": 0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "isCreditNote": false, "isCharged": true, "isApproved": false, "postings": [{"id": 3846590015, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3846590015"}, {"id": 3846591448, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3846591448"}], "reminders": [], "invoiceRemarks"…
+    ┌─ API PUT /invoice/2147706418/:payment
+    │  params: {"paymentDate": "2026-01-22", "paymentTypeId": 40145673, "paidAmount": 8250.0, "paidAmountCurrency": 8250.0}
+    └─ 200 OK (2.3s) id=2147706418
+    │  response: {"value": {"id": 2147706418, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147706418", "invoiceNumber": 3, "invoiceDate": "2026-01-15", "customer": {"id": 108611826, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108611826"}, "creditedInvoice": 0, "isCredited": false, "invoiceDueDate": "2026-02-15", "kid": "", "invoiceComment": "", "comment": "", "orders": [{"id": 402085147, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402085147"}], "orderLines": [{"id": 1607618036, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607618036"}], "travelReports": [], "projectInvoiceDetails": [{"id": 1965832818, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/details/1965832818"}], "voucher": {"id": 609449021, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609449021"}, "deliveryDate": "2026-01-15", "amount": 8250.0, "amountCurrency": 8250.0, "amountExcludingVat": 6600.0, "amountExcludingVatCurrency": 6600.0, "amountRoundoff": 0.0, "amountRoundoffCurrency": 0.0, "amountOutstanding": 0.0, "amountCurrencyOutstanding": 0.0, "amountOutstandingTotal": 0.0, "amountCurrencyOutstandingTotal": 0.0, "sumRemits": 0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "isCreditNote": false, "isCharged": true, "isApproved": false, "postings": [{"id": 3846590277, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3846590277"}, {"id": 3846591503, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3846591503"}], "reminders": [], "invoiceRemarks"…
+    ┌─ API PUT /invoice/2147706430/:payment
+    │  params: {"paymentDate": "2026-01-24", "paymentTypeId": 40145673, "paidAmount": 5062.5, "paidAmountCurrency": 5062.5}
+    └─ 200 OK (4.2s) id=2147706430
+    │  response: {"value": {"id": 2147706430, "version": 3, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/2147706430", "invoiceNumber": 4, "invoiceDate": "2026-01-15", "customer": {"id": 108611869, "url": "kkpqfuj-amager.tripletex.dev/v2/customer/108611869"}, "creditedInvoice": 0, "isCredited": false, "invoiceDueDate": "2026-02-15", "kid": "", "invoiceComment": "", "comment": "", "orders": [{"id": 402085153, "url": "kkpqfuj-amager.tripletex.dev/v2/order/402085153"}], "orderLines": [{"id": 1607618044, "url": "kkpqfuj-amager.tripletex.dev/v2/order/orderline/1607618044"}], "travelReports": [], "projectInvoiceDetails": [{"id": 1965832824, "url": "kkpqfuj-amager.tripletex.dev/v2/invoice/details/1965832824"}], "voucher": {"id": 609449113, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609449113"}, "deliveryDate": "2026-01-15", "amount": 5062.5, "amountCurrency": 5062.5, "amountExcludingVat": 4050.0, "amountExcludingVatCurrency": 4050.0, "amountRoundoff": 0.0, "amountRoundoffCurrency": 0.0, "amountOutstanding": 0.0, "amountCurrencyOutstanding": 0.0, "amountOutstandingTotal": 0.0, "amountCurrencyOutstandingTotal": 0.0, "sumRemits": 0, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "isCreditNote": false, "isCharged": true, "isApproved": false, "postings": [{"id": 3846590517, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3846590517"}, {"id": 3846591571, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3846591571"}], "reminders": [], "invoiceRemarks"…
+    ┌─ API POST /ledger/voucher
+    │  body:   {"date": "2026-02-02", "description": "Bankgebyr", "postings": [{"row": 1, "date": "2026-02-02", "amountGross": 1762.74, "amountGrossCurrency": 1762.74, "account": {"id": 503358683}, "vatType": {"id": 0}}, {"row": 2, "date": "2026-02-02", "amountGross": -1762.74, "amountGrossCurrency": -1762.74, "account": {"id": 503358353}, "vatType": {"id": 0}}]}
+    └─ 201 OK (3.0s) id=609449540
+    │  response: {"value": {"id": 609449540, "version": 5, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609449540", "date": "2026-02-02", "number": 4, "tempNumber": 0, "year": 2026, "description": "Bankgebyr", "voucherType": null, "reverseVoucher": null, "postings": [{"id": 3846591645, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3846591645", "voucher": {"id": 609449540, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609449540"}, "date": "2026-02-02", "description": "Bankgebyr", "account": {"id": 503358683, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/account/503358683"}, "amortizationAccount": null, "amortizationStartDate": null, "amortizationEndDate": null, "customer": null, "supplier": null, "employee": null, "project": null, "product": null, "department": null, "vatType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}, "amount": 1762.74, "amountCurrency": 1762.74, "amountGross": 1762.74, "amountGrossCurrency": 1762.74, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "closeGroup": null, "invoiceNumber": "", "termOfPayment": null, "row": 1, "type": null, "externalRef": "", "systemGenerated": false, "taxTransactionType": "(Ikke valgt)", "taxTransactionTypeId": 0, "matched": false, "quantityAmount1": 0, "quantityType1": null, "quantityAmount2": 0, "quantityType2": null, "isVatReadonly": true, "isAmountVatClosed": false, "postingRuleId": 0, "freeAccountingDimension1": null, "freeAccountingDimension2":…
+    ┌─ API POST /ledger/voucher
+    │  body:   {"date": "2026-02-04", "description": "Skattetrekk", "postings": [{"row": 1, "date": "2026-02-04", "amountGross": 982.45, "amountGrossCurrency": 982.45, "account": {"id": 503358418}, "vatType": {"id": 0}}, {"row": 2, "date": "2026-02-04", "amountGross": -982.45, "amountGrossCurrency": -982.45, "account": {"id": 503358353}, "vatType": {"id": 0}}]}
+    └─ 201 OK (3.3s) id=609449569
+    │  response: {"value": {"id": 609449569, "version": 5, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609449569", "date": "2026-02-04", "number": 5, "tempNumber": 0, "year": 2026, "description": "Skattetrekk", "voucherType": null, "reverseVoucher": null, "postings": [{"id": 3846591731, "version": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/posting/3846591731", "voucher": {"id": 609449569, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/voucher/609449569"}, "date": "2026-02-04", "description": "Skattetrekk", "account": {"id": 503358418, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/account/503358418"}, "amortizationAccount": null, "amortizationStartDate": null, "amortizationEndDate": null, "customer": null, "supplier": null, "employee": null, "project": null, "product": null, "department": null, "vatType": {"id": 0, "url": "kkpqfuj-amager.tripletex.dev/v2/ledger/vatType/0"}, "amount": 982.45, "amountCurrency": 982.45, "amountGross": 982.45, "amountGrossCurrency": 982.45, "currency": {"id": 1, "url": "kkpqfuj-amager.tripletex.dev/v2/currency/1"}, "closeGroup": null, "invoiceNumber": "", "termOfPayment": null, "row": 1, "type": null, "externalRef": "", "systemGenerated": false, "taxTransactionType": "(Ikke valgt)", "taxTransactionTypeId": 0, "matched": false, "quantityAmount1": 0, "quantityType1": null, "quantityAmount2": 0, "quantityType2": null, "isVatReadonly": true, "isAmountVatClosed": false, "postingRuleId": 0, "freeAccountingDimension1": null, "freeAccountingDimension2":…
+  Iteration 2 took 23.1s
+
+──────────────────────────────────────────────────
+  ITERATION 3/25
+──────────────────────────────────────────────────
+  Tokens: prompt=27777 completion=9 total_session=72600
+  Messages: 13 (95,094 chars)
+  Tool calls (1):
+    [1] done()
+
+  ⏳ Verifying task completion (202s remaining)...
+  📋 Verification prompt (4896 chars):
+    │ TASK: Reconcile the bank statement (attached CSV) against open invoices in Tripletex. Match incoming payments to customer invoices and outgoing payments to supplier invoices. Handle partial payments correctly.
+    │ 
+    │ TASK TYPE: Supplier invoice.
+    │ Check these SPECIFIC things:
+    │ - Supplier created with correct name and org number?
+    │ - Correct expense account used (typically 4000-7999 range, NOT 1000-range asset accounts)?
+    │ - Correct input VAT type (inngående MVA, typically vatType 1 for 25%)?
+    │ - Invoice amounts NOT zero — if amount=0 or amountCurrency=0 in the response, the postings were WRONG
+    │ - Invoice number, date, due date match the PDF/task?
+    │ 
+    │ ACTION LOG (chronological):
+    │ CALL: tripletex_api({"method": "GET", "path": "/invoice", "params": {"invoiceDateFrom": "2000-01-01", "invoiceDateTo": "2030-12-31"}})
+    │ CALL: tripletex_api({"method": "GET", "path": "/supplierInvoice", "params": {"invoiceDateFrom": "2000-01-01", "invoiceDateTo": "2030-12-31"}})
+    │ CALL: tripletex_api({"method": "GET", "path": "/invoice/paymentType"})
+    │ status=ok
+    │ status=ok
+    │ CALL: tripletex_api({"method": "PUT", "path": "/invoice/2147706402/:payment", "params": {"paymentDate": "2026-01-19", "paymentTypeId": 40145673, "paidAmount": 6312.5, "paidAmountCurrency": 6312.5}})
+    │ CALL: tripletex_api({"method": "PUT", "path": "/invoice/2147706418/:payment", "params": {"paymentDate": "2026-01-22", "paymentTypeId": 40145673, "paidAmount": 8250.0, "paidAmountCurrency": 8250.0}})
+    │ CALL: tripletex_api({"method": "PUT", "path": "/invoice/2147706430/:payment", "params": {"paymentDate": "2026-01-24", "paymentTypeId": 40145673, "paidAmount": 5062.5, "paidAmountCurrency": 5062.5}})
+    │ CALL: tripletex_api({"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-02-02", "description": "Bankgebyr", "postings": [{"row": 1, "date": "2026-02-02", "amountGross": 1762.74, "amountGrossCurrency": 1762.74, "account": {"id": 503358683}, "vatType": {"id": 0}}, {"row": 2, "date": "2026-02-02", "amount)
+    │ CALL: tripletex_api({"method": "POST", "path": "/ledger/voucher", "body": {"date": "2026-02-04", "description": "Skattetrekk", "postings": [{"row": 1, "date": "2026-02-04", "amountGross": 982.45, "amountGrossCurrency": 982.45, "account": {"id": 503358418}, "vatType": {"id": 0}}, {"row": 2, "date": "2026-02-04", "amount)
+    │ status=ok id=2147706402 amount=6312.5 amountCurrency=6312.5 invoiceNumber=2
+    │ status=ok id=2147706418 amount=8250.0 amountCurrency=8250.0 invoiceNumber=3
+    │ status=ok id=2147706430 amount=5062.5 amountCurrency=5062.5 invoiceNumber=4
+    │ status=ok id=609449540
+    │ status=ok id=609449569
+    │ CALL: done({})
+    │ 
+    │ You are an accounting verification agent. Based ONLY on the action log above, check:
+    │ 1. MATH: All amounts, percentages, VAT calculations correct? (e.g. if task says 50% of 274950, invoice total incl VAT must be 137475)
+    │ 2. COMPLETENESS: Were all steps in the task done? Look at the CALL entries — if the action log shows the step was performed with status=ok, it WAS done. Do NOT say a step is missing if you can see it in the log!
+    │ IMPORTANT: 'Fakturer'/'Invoice' just means create an invoice — do NOT require sending unless the task explicitly says send/sende/enviar/envoyer/senden!
+    │ 3. DATA: Names, org numbers, dates match the task?
+    │ 4. AMOUNTS: If any created entity shows amount=0 or totalAmount=0 in the response, that is WRONG — the postings failed silently. For supplier invoices: amount=0 with amountExcludingVat=0 means postings were MISSING or malformed.
+    │ 5. BUDGET vs INVOICE: NEVER flag a mismatch between project budget and invoice total. For fixed-price projects the invoice excl. VAT matches the fixedprice — this is CORRECT. For other projects, invoice is based on actual work/costs. Either way, do NOT fail on budget vs invoice differences.
+    │ 6. PAYMENT AMOUNTS: Invoice payments and reversals use the FULL amount INCLUDING VAT, not excl. VAT. If the task says 'X NOK excl. VAT', the correct payment/reversal amount is X × 1.25 (Norwegian 25% VAT). Do NOT flag a mismatch between excl. VAT amounts in the task and incl. VAT payment amounts.
+    │ 7. VAT BREAKDOWN: If the total invoice amount matches the expected sum, do NOT fail on 'VAT breakdown not reflected' or similar vague VAT concerns. Only fail if a specific line item has the WRONG VAT rate applied.
+    │ 
+    │ CRITICAL: Be CONSERVATIVE. When in doubt, say PASS.
+    │ Only say FAIL for CLEAR, OBJECTIVE, SPECIFIC errors (wrong math, completely missing step, wrong name).
+    │ Do NOT say FAIL for: vague concerns, 'might be wrong', uncertain issues, minor stylistic differences, or steps you cannot confirm from the log (absence of evidence is NOT evidence of absence).
+    │ A false FAIL causes MORE damage than a missed error. When uncertain, ALWAYS say PASS.
+    │ If the action log shows all main steps completed with status=ok, say PASS.
+    │ 
+    │ Reply ONLY with either:
+    │ - 'PASS' if everything looks correct or you are unsure
+    │ - 'FAIL: <specific issue>' ONLY if there is an obvious, objective error
+  🔍 Verification (1393 tokens): PASS
+
+  ✓ DONE — 3 iterations, 72600 tokens, 34.4s
+
+======================================================================
+  TASK COMPLETE — total 38.4s
+======================================================================
+
