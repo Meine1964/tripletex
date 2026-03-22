@@ -1025,8 +1025,9 @@ rules:
     field_type:
       remunerationType: number
     message: >
-      remunerationType must be an INTEGER: 0=NOT_CHOSEN, 1=MONTHLY_PAY,
-      2=HOURLY_PAY, 3=COMMISSIONED, 4=FEE, 5=PIECEWORK_PAY.
+      remunerationType must be an INTEGER: 0=NOT_CHOSEN, 1=HOURLY_PAY,
+      2=MONTHLY_PAY, 3=COMMISSIONED, 4=FEE, 5=PIECEWORK_PAY.
+      For normal salaried employment, use 2 (MONTHLY_PAY).
 
   - id: employment-details-employmentForm-type
     description: "employmentForm must be an integer (0-2)"
@@ -1036,8 +1037,8 @@ rules:
     field_type:
       employmentForm: number
     message: >
-      employmentForm must be an INTEGER: 0=NOT_CHOSEN, 1=PERMANENT,
-      2=TEMPORARY.
+      employmentForm must be an INTEGER: 0=NOT_CHOSEN, 1=TEMPORARY,
+      2=PERMANENT. For normal employment, use 2 (PERMANENT).
 
   - id: employment-details-workingHoursScheme-type
     description: "workingHoursScheme must be an integer (0-6)"
@@ -1193,8 +1194,9 @@ rules:
     field_type:
       remunerationType: number
     message: >
-      remunerationType must be an INTEGER: 0=NOT_CHOSEN, 1=MONTHLY_PAY,
-      2=HOURLY_PAY, 3=COMMISSIONED, 4=FEE, 5=PIECEWORK_PAY.
+      remunerationType must be an INTEGER: 0=NOT_CHOSEN, 1=HOURLY_PAY,
+      2=MONTHLY_PAY, 3=COMMISSIONED, 4=FEE, 5=PIECEWORK_PAY.
+      For normal salaried employment, use 2 (MONTHLY_PAY).
 
   - id: employment-details-put-employmentForm-type
     description: "employmentForm must be an integer on PUT too"
@@ -1204,8 +1206,8 @@ rules:
     field_type:
       employmentForm: number
     message: >
-      employmentForm must be an INTEGER: 0=NOT_CHOSEN, 1=PERMANENT,
-      2=TEMPORARY.
+      employmentForm must be an INTEGER: 0=NOT_CHOSEN, 1=TEMPORARY,
+      2=PERMANENT. For normal employment, use 2 (PERMANENT).
 
   - id: employment-details-put-workingHoursScheme-type
     description: "workingHoursScheme must be an integer on PUT too"
@@ -1462,3 +1464,172 @@ rules:
       POST /timesheet/entry should include hourlyRate (the rate from the
       task). Without hourlyRate, the hours will be registered at 0 rate
       and the invoice amount will be wrong.
+
+  # ════════════════════════════════════════════════════════════════
+  #  NEW RULES — deduced from batch failure pattern analysis
+  # ════════════════════════════════════════════════════════════════
+
+  # ── Per Diem: location must be a string ───────────────────────
+  - id: perdiem-location-type
+    description: "Per diem location must be a string, not an object"
+    when:
+      method: POST
+      path: /travelExpense/perDiemCompensation
+    field_type:
+      location: string
+    message: >
+      'location' on perDiemCompensation must be a plain string like "Oslo"
+      or "Bergen", NOT an object like {"name":"Oslo"}. Just use a city name.
+
+  # ── Per Diem: overnightAccommodation must be a string ─────────
+  - id: perdiem-overnightAccommodation-type
+    description: "overnightAccommodation must be a string enum"
+    when:
+      method: POST
+      path: /travelExpense/perDiemCompensation
+    field_type:
+      overnightAccommodation: string
+    message: >
+      'overnightAccommodation' must be a string: "HOTEL", "BOARDING_HOUSE_WITHOUT_COOKING",
+      "BOARDING_HOUSE_WITH_COOKING", or "NONE". NOT an object.
+
+  # ── Travel Expense: isDayTrip must be boolean ─────────────────
+  - id: travel-expense-isDayTrip-type
+    description: "isDayTrip field must be boolean"
+    when:
+      method: POST
+      path: /travelExpense
+    field_type:
+      travelDetails.isDayTrip: boolean
+    message: >
+      'travelDetails.isDayTrip' must be a boolean (true or false), not a
+      string like "true". Set true for day trips (no overnight stay) and
+      false for overnight trips.
+
+  # ── Employee: dateOfBirth on POST ─────────────────────────────
+  - id: employee-post-dateOfBirth
+    description: "POST /employee should include dateOfBirth"
+    when:
+      method: POST
+      path: /employee
+    require_fields:
+      - dateOfBirth
+    message: >
+      POST /employee should include 'dateOfBirth' (YYYY-MM-DD). Without it,
+      employment creation will fail. Use a reasonable date like 1990-01-01
+      if the task doesn't specify.
+
+  # ── Supplier invoice: invoiceDate format ──────────────────────
+  - id: supplier-invoice-invoiceDate-format
+    description: "invoiceDate on supplier invoice must be YYYY-MM-DD"
+    when:
+      method: POST
+      path: /supplierInvoice
+    field_format:
+      invoiceDate: "^\\d{4}-\\d{2}-\\d{2}$"
+    message: >
+      invoiceDate must be in YYYY-MM-DD format (e.g. 2026-03-21).
+
+  # ── Supplier invoice: invoiceNumber must be string ────────────
+  - id: supplier-invoice-invoiceNumber-type
+    description: "invoiceNumber on supplier invoice must be a string"
+    when:
+      method: POST
+      path: /supplierInvoice
+    field_type:
+      invoiceNumber: string
+    message: >
+      'invoiceNumber' on POST /supplierInvoice must be a string (e.g.
+      "INV-001"), not a number. The API requires string type.
+
+  # ── Voucher: require description ──────────────────────────────
+  - id: voucher-require-description
+    description: "POST /ledger/voucher should include description"
+    when:
+      method: POST
+      path: /ledger/voucher
+    require_fields:
+      - description
+    message: >
+      POST /ledger/voucher should include 'description' for audit trail
+      (e.g. "Monthly closing December 2026", "Accrual reversal January").
+
+  # ── Travel Expense: departureDate format ──────────────────────
+  - id: travel-expense-departureDate-format
+    description: "departureDate must be YYYY-MM-DD"
+    when:
+      method: POST
+      path: /travelExpense
+    field_format:
+      travelDetails.departureDate: "^\\d{4}-\\d{2}-\\d{2}$"
+    message: >
+      travelDetails.departureDate must be YYYY-MM-DD (e.g. 2026-04-01).
+
+  # ── Travel Expense: returnDate format ─────────────────────────
+  - id: travel-expense-returnDate-format
+    description: "returnDate must be YYYY-MM-DD"
+    when:
+      method: POST
+      path: /travelExpense
+    field_format:
+      travelDetails.returnDate: "^\\d{4}-\\d{2}-\\d{2}$"
+    message: >
+      travelDetails.returnDate must be YYYY-MM-DD (e.g. 2026-04-05).
+
+  # ── Per Diem: reject rateCategory as plain number ─────────────
+  - id: perdiem-rateCategory-type
+    description: "rateCategory must be an object with id, not a number"
+    when:
+      method: POST
+      path: /travelExpense/perDiemCompensation
+    field_type:
+      rateCategory: object
+    message: >
+      'rateCategory' must be an object like {"id": RATE_ID}, not a plain
+      number. Look up valid rate categories with GET /travelExpense/rateCategory
+      and use the id from a matching category.
+
+  # ── Per Diem: reject travelExpense as plain number ────────────
+  - id: perdiem-travelExpense-type
+    description: "travelExpense reference must be an object with id"
+    when:
+      method: POST
+      path: /travelExpense/perDiemCompensation
+    field_type:
+      travelExpense: object
+    message: >
+      'travelExpense' must be an object like {"id": EXPENSE_ID}, not a
+      plain number. Use the ID from the travel expense you just created.
+
+  # ── Order line: count field required ──────────────────────────
+  - id: orderline-count-required
+    description: "POST /order/orderline needs count"
+    when:
+      method: POST
+      path: /order/orderline
+    require_fields:
+      - count
+    message: >
+      POST /order/orderline requires 'count' (number). This is the quantity
+      of items ordered (e.g. 1, 5, 10).
+
+  # ── Employee: firstName/lastName format ───────────────────────
+  - id: employee-firstName-type
+    description: "firstName must be a string"
+    when:
+      method: POST
+      path: /employee
+    field_type:
+      firstName: string
+    message: >
+      'firstName' must be a string (e.g. "Kari"), not a number or object.
+
+  - id: employee-lastName-type
+    description: "lastName must be a string"
+    when:
+      method: POST
+      path: /employee
+    field_type:
+      lastName: string
+    message: >
+      'lastName' must be a string (e.g. "Nordmann"), not a number or object.
