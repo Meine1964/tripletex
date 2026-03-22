@@ -389,6 +389,7 @@ KEY ENDPOINTS:
 - IMPORTANT: ALL action endpoints (path contains /:) use query PARAMS, not JSON body! Use the "params" field, not "body".
 - GET/POST /project — name, number (string), projectManager:{id:X}, startDate, endDate, customer:{id:X} (link to customer!)
   Fixed-price fields: "fixedprice" (ALL LOWERCASE!) = amount, "isFixedPrice" = true/false. Do NOT use "fixedPrice" (camelCase)!
+  Internal projects: "isInternal": true (for cost-tracking projects with no customer). Do NOT set customer for internal projects.
 - GET/POST /department — name, departmentNumber (string)
 - GET/POST/DELETE /travelExpense — employee:{id:X}, title, date, travelDetails:{departureDate, returnDate, destination, purpose, isDayTrip}
 - GET/POST /travelExpense/cost — travelExpense:{id}, costCategory:{id}, paymentType:{id}, amountCurrencyIncVat
@@ -2296,7 +2297,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     args["body"] = req_body
                     args["params"] = None
                     print(f"    │  [fix] PUT without body: moved params → body: {list(req_body.keys())}", flush=True)
-                # Auto-fix: timesheet entry hourlyRate=0 → look up from project hourlyRates
+                # Auto-fix: timesheet entry hourlyRate=0 → look up from project hourlyRates or project data
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/timesheet/entry"
                         and req_body and isinstance(req_body, dict)
                         and (not req_body.get("hourlyRate") or req_body.get("hourlyRate") == 0)):
@@ -2306,11 +2307,27 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             _hr_resp = call_tripletex(base_url, auth, "GET", "/project/hourlyRates",
                                                       params={"projectId": str(_proj_id)})
                             _hr_vals = _hr_resp.get("values", [])
+                            _rate = 0
                             if _hr_vals:
-                                _rate = _hr_vals[0].get("hourlyRate", 0)
-                                if _rate and _rate > 0:
-                                    req_body["hourlyRate"] = _rate
-                                    print(f"    │  [fix] timesheet hourlyRate=0 → fetched {_rate} from project hourlyRates", flush=True)
+                                # Check fixedRate first, then projectSpecificRates
+                                _rate = _hr_vals[0].get("fixedRate", 0) or 0
+                                if not _rate and _hr_vals[0].get("projectSpecificRates"):
+                                    for _psr in _hr_vals[0]["projectSpecificRates"]:
+                                        _psr_rate = _psr.get("hourlyRate", 0)
+                                        if _psr_rate and _psr_rate > 0:
+                                            _rate = _psr_rate
+                                            break
+                            if _rate and _rate > 0:
+                                req_body["hourlyRate"] = _rate
+                                print(f"    │  [fix] timesheet hourlyRate=0 → fetched {_rate} from project hourlyRates", flush=True)
+                            else:
+                                # For fixed-price projects, hourlyRate doesn't affect invoice — use nominal 1
+                                _proj_resp = call_tripletex(base_url, auth, "GET", f"/project/{_proj_id}",
+                                                            params={"fields": "id,isFixedPrice,fixedprice"})
+                                _proj_val = _proj_resp.get("value", {})
+                                if _proj_val.get("isFixedPrice") and _proj_val.get("fixedprice", 0) > 0:
+                                    req_body["hourlyRate"] = 1
+                                    print(f"    │  [fix] timesheet hourlyRate=0 → fixed-price project, set nominal rate=1", flush=True)
                         except Exception as e:
                             print(f"    │  [fix] could not fetch project hourlyRate: {e}", flush=True)
                 # Auto-fix: reject POST without body (except for action endpoints)
@@ -2778,6 +2795,15 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     if "project" in req_body:
                         req_body.pop("project")
                         print(f"    │  [fix] activity: stripped invalid 'project' field (not supported on POST /activity)", flush=True)
+
+                # Auto-fix: POST /project — set isInternal:true when task mentions internal project
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/project" and req_body
+                        and not req_body.get("isInternal")):
+                    _internal_kw = ("internal project", "internt prosjekt", "internes projekt",
+                                    "projet interne", "proyecto interno", "projeto interno")
+                    if any(kw in prompt.lower() for kw in _internal_kw):
+                        req_body["isInternal"] = True
+                        print(f"    │  [fix] POST /project: set isInternal=true (task mentions internal project)", flush=True)
 
                 # Auto-fix: GET /project — strip project(*) from fields param
                 if (args["method"] == "GET" and re.match(r'^/project(/\d+)?$', args["path"].rstrip("/"))):
