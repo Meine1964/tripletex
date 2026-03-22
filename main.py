@@ -1688,6 +1688,43 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         except Exception as e:
             print(f"  [pre] Closing pre-scan failed: {e}", flush=True)
 
+    # Universal account pre-scan: for tasks that need vouchers, supplier invoices, bank reconciliation,
+    # reminders, etc. — fetch key accounts once instead of GPT wasting iterations on GET /ledger/account.
+    # Skip if closing_pre_info already has the data.
+    accounts_pre_info = ""
+    if not closing_pre_info:
+        # Keywords indicating the task will likely need account lookups
+        acct_keywords = ["voucher", "bilag", "konto", "account", "supplier", "leverandør", "lieferant",
+                         "fournisseur", "proveedor", "fornecedor", "bankavsteming", "reconcil",
+                         "purring", "reminder", "mahnung", "rappel", "overdue", "agio", "disagio",
+                         "valuta", "exchange", "correction", "korrigering", "rettelse", "feil",
+                         "dimension", "buchhaltung", "contabilidad", "comptabilité"]
+        if any(kw in prompt_lower for kw in acct_keywords):
+            print("  [pre] Account-related task detected — pre-fetching key accounts...", flush=True)
+            try:
+                acct_resp = call_tripletex(base_url, auth, "GET", "/ledger/account",
+                                           params={"fields": "id,number,name"})
+                accounts = acct_resp.get("values", [])
+                if accounts:
+                    # Extract account numbers from the task prompt
+                    task_account_nums = set()
+                    for m in re.findall(r'\b(\d{4})\b', prompt):
+                        n = int(m)
+                        if 1000 <= n <= 9999 and n not in (2023, 2024, 2025, 2026):
+                            task_account_nums.add(n)
+                    # Always include commonly needed accounts
+                    common_nums = {1920, 2400, 1500, 2600, 2770, 2900, 2930, 7770, 3400,
+                                   4300, 5000, 6010, 8060, 8160}
+                    all_nums = common_nums | task_account_nums
+                    key_accounts = [a for a in accounts if a.get("number") in all_nums]
+                    if key_accounts:
+                        accounts_pre_info = f"\n\nPRE-SCANNED KEY ACCOUNTS (use these IDs directly — do NOT re-fetch):"
+                        for a in key_accounts:
+                            accounts_pre_info += f"\n  Account {a.get('number')}: id={a.get('id')} ({a.get('name', '')})"
+                        print(f"  [pre] Pre-scanned {len(key_accounts)} key accounts", flush=True)
+            except Exception as e:
+                print(f"  [pre] Account pre-scan failed: {e}", flush=True)
+
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     today_year = today[:4]
     system_prompt = SYSTEM_PROMPT_TEMPLATE.replace("{today}", today).replace("{today_year}", today_year)
@@ -1695,7 +1732,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         {"role": "system", "content": system_prompt},
     ]
 
-    user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates.{salary_pre_info}{ledger_pre_info}{closing_pre_info}"
+    user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates.{salary_pre_info}{ledger_pre_info}{closing_pre_info}{accounts_pre_info}"
     vision_parts = []  # For image vision inputs
     if files:
         user_content += f"\n\nAttached files ({len(files)}):"
@@ -1760,6 +1797,40 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
             print(f"\n  ⏰ TIME LIMIT — {elapsed_total:.0f}s elapsed, stopping to save log", flush=True)
             diag["errors"].append(f"Time limit reached at {elapsed_total:.0f}s")
             break
+
+        # ── Message history trimming ──────────────────────────────────
+        # After iteration 10, compress old tool responses to save prompt tokens.
+        # Keep last 6 tool responses intact; compress older ones to status+id only.
+        if iteration >= 10 and len(messages) > 20:
+            _keep_recent = 12  # keep the most recent N messages intact
+            _trimmed_count = 0
+            for mi in range(len(messages) - _keep_recent):
+                m = messages[mi]
+                if isinstance(m, dict) and m.get("role") == "tool":
+                    content = m["content"]
+                    if len(content) > 500:
+                        try:
+                            c = json.loads(content)
+                            sc = c.get("_status_code", "ok")
+                            val = c.get("value", {})
+                            summary_parts = [f"status={sc}"]
+                            for k in ("id", "name", "number", "amount", "invoiceNumber", "firstName", "lastName"):
+                                if isinstance(val, dict) and k in val:
+                                    summary_parts.append(f"{k}={val[k]}")
+                            vals = c.get("values", [])
+                            if vals:
+                                summary_parts.append(f"count={len(vals)}")
+                            hint = c.get("_hint", "")
+                            if hint:
+                                summary_parts.append(f"hint={hint[:100]}")
+                            m["content"] = json.dumps({"_summary": " ".join(summary_parts)})
+                            _trimmed_count += 1
+                        except (json.JSONDecodeError, TypeError):
+                            if len(content) > 500:
+                                m["content"] = content[:200] + "...(trimmed)"
+                                _trimmed_count += 1
+            if _trimmed_count:
+                print(f"  [trim] Compressed {_trimmed_count} old tool responses to save tokens", flush=True)
 
         print(f"\n{'─'*50}", flush=True)
         print(f"  ITERATION {iteration+1}/25", flush=True)
@@ -2083,10 +2154,24 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         verdict = verify_resp.choices[0].message.content.strip()
                         v_tokens = verify_resp.usage.total_tokens if verify_resp.usage else 0
                         print(f"  🔍 Verification ({v_tokens} tokens): {verdict}", flush=True)
-                        if verdict.upper().startswith("FAIL"):
-                            # Log the failure but DO NOT return to agent — false FAILs
-                            # cause more damage than missed errors (agent undoes correct work)
-                            print(f"  ⚠ Verifier said FAIL but proceeding (logged only): {verdict}", flush=True)
+                        if verdict.upper().startswith("FAIL") and remaining > 30 and not diag.get("_verify_retried"):
+                            # Give the agent ONE chance to fix. Only once — second done() always passes.
+                            diag["_verify_retried"] = True
+                            fix_msg = (
+                                f"VERIFICATION FAILED: {verdict}\n\n"
+                                "The verifier found an issue with your work. You have ONE chance to fix it.\n"
+                                "Read the failure reason above carefully and make the necessary API calls to fix it.\n"
+                                "Then call done() again when the fix is complete."
+                            )
+                            print(f"  🔄 Sending agent back to fix: {verdict}", flush=True)
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": fix_msg,
+                            })
+                            break  # break inner tool_call loop, continue outer iteration loop
+                        elif verdict.upper().startswith("FAIL"):
+                            print(f"  ⚠ Verifier said FAIL (already retried, proceeding): {verdict}", flush=True)
                     except Exception as e:
                         print(f"  ⚠ Verification error (proceeding): {e}", flush=True)
 
