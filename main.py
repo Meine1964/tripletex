@@ -646,9 +646,12 @@ Step 3: MONTHLY DEPRECIATION (if requested — "avskriving"/"avskrivning"/"depre
 Step 4: SALARY PROVISION / ACCRUAL (if requested — "lønnsavsetning"/"lønnsavsetjing"/"salary accrual").
   Debit salary expense (e.g. 5000 or the account specified), Credit accrued salaries (e.g. 2900, 2930 or the account specified).
   For the AMOUNT: use the amount from the task if specified. If NO amount is given in the task:
-  - GET /salary/transaction to check for recent salary runs — use that monthly amount
-  - If no salary data exists, look up the employee's salary configuration or use a reasonable default
-  - NEVER invent a random large number. If unsure, use 30000-35000 as a reasonable monthly salary estimate.
+  - FIRST: GET /employee?fields=* to find employees in the sandbox.
+  - Then GET /employee/employment?employeeId=X&fields=* for each employee (up to 2).
+  - Check the employment details for "monthlySalary" or calculate from "annualSalary" / 12.
+  - Use the ACTUAL monthly salary from the employment data as the provision amount.
+  - If salary data is available in the pre-scan, use it directly (see PRE-SCANNED SALARY DATA below).
+  - ONLY if no salary data can be found at all, use 30000 as a fallback estimate.
 
 Step 5: OTHER PROVISIONS (if requested). Post each as the task specifies.
 
@@ -1655,7 +1658,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 # Extract account numbers mentioned in the task (4-digit numbers)
                 import re as _re
                 task_account_nums = set()
-                for m in _re.findall(r'\bkonto\s+(\d{4})\b', prompt_lower):
+                for m in _re.findall(r'\b(?:konto|compte|cuenta|konto|account|conto)\s+(\d{4})\b', prompt_lower):
                     task_account_nums.add(int(m))
                 for m in _re.findall(r'\b(\d{4})\b', prompt):
                     n = int(m)
@@ -1679,6 +1682,38 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             closing_pre_info += f"\n  Account {n}: id={a.get('id')} ({a.get('name', '')})"
                 closing_pre_info += "\n\n  CRITICAL: Use the account IDs above directly. Do NOT look up accounts by number again — this wastes iterations!"
                 print(f"  [pre] Pre-scan complete: {len(accounts)} accounts, {len(key_accounts)} key accounts found", flush=True)
+
+                # Pre-scan salary data for salary provision tasks
+                salary_provision_kws = ["provision", "lønnsavset", "salary accrual", "provision pour", "provisión", "rückstellung"]
+                if any(kw in prompt_lower for kw in salary_provision_kws):
+                    try:
+                        emp_resp = call_tripletex(base_url, auth, "GET", "/employee",
+                                                  params={"fields": "id,firstName,lastName"})
+                        employees = emp_resp.get("values", [])
+                        salary_found = False
+                        for emp in employees[:2]:
+                            empl_resp = call_tripletex(base_url, auth, "GET", "/employee/employment",
+                                params={"employeeId": emp["id"], "fields": "*"})
+                            empls = empl_resp.get("values", [])
+                            if empls:
+                                det_resp = call_tripletex(base_url, auth, "GET", "/employee/employment/details",
+                                    params={"employmentId": empls[0]["id"]})
+                                dets = det_resp.get("values", [])
+                                if dets:
+                                    d = dets[0]
+                                    monthly = d.get("monthlySalary") or (d.get("annualSalary", 0) / 12 if d.get("annualSalary") else 0)
+                                    if monthly > 0:
+                                        closing_pre_info += f"\n\n  PRE-SCANNED SALARY DATA:"
+                                        closing_pre_info += f"\n  Employee {emp.get('firstName','')} {emp.get('lastName','')}: monthlySalary={monthly:.0f}"
+                                        closing_pre_info += f"\n  Use this amount for salary provision if the task does not specify a different amount."
+                                        salary_found = True
+                                        print(f"  [pre] Salary data: {emp.get('firstName')} {emp.get('lastName')} monthlySalary={monthly:.0f}", flush=True)
+                                        break
+                        if not salary_found:
+                            print(f"  [pre] No salary data found for provision estimate", flush=True)
+                    except Exception as e:
+                        print(f"  [pre] Salary pre-scan failed: {e}", flush=True)
+
         except Exception as e:
             print(f"  [pre] Closing pre-scan failed: {e}", flush=True)
 
@@ -2242,6 +2277,13 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     print(f"    │  [fix] GET body → params: {req_body}", flush=True)
                     req_body = None
                     args.pop("body", None)
+                # Auto-fix: PUT with params but no body (non-action endpoints) → move params to body
+                # This prevents the infinite put-no-body validation loop when GPT sends params instead of body
+                if args["method"] == "PUT" and not req_body and args.get("params") and '/:' not in args["path"]:
+                    req_body = dict(args["params"])
+                    args["body"] = req_body
+                    args["params"] = None
+                    print(f"    │  [fix] PUT without body: moved params → body: {list(req_body.keys())}", flush=True)
                 # Auto-fix: reject POST without body (except for action endpoints)
                 if args["method"] == "POST" and not req_body and '/:' not in args["path"]:
                     err_msg = (f"ERROR: POST {args['path']} requires a JSON body but you sent none. "
