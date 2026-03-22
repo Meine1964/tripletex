@@ -540,6 +540,13 @@ Step 2: Calculate depreciation for each asset.
   Example: 170000 / 4 = 42500.00, 349200 / 6 = 58200.00, 258400 / 3 = 86133.33
 
 Step 3: Post EACH depreciation as a SEPARATE voucher.
+  CRITICAL: Row 1 (debit) and row 2 (credit) MUST use DIFFERENT accounts! NEVER post both rows to the same account!
+  - Row 1 (debit/positive): EXPENSE account (e.g. 6010 Avskrivning)
+  - Row 2 (credit/negative): ACCUMULATED DEPRECIATION account (e.g. 1209) or the ASSET account itself (e.g. 1210, 1230, 1250)
+  Example: If task says "Programvare konto 1250, avskrivning 6010, akkumulert 1209":
+    Row 1: account=6010 (expense), amountGross=+96133.33
+    Row 2: account=1209 (accumulated dep), amountGross=-96133.33
+  If 1209 does NOT exist in the pre-scanned accounts, use the ASSET account (1250) for row 2 instead.
   POST /ledger/voucher with body:
   {
     "date": "YYYY-12-31" (or the date specified),
@@ -549,7 +556,6 @@ Step 3: Post EACH depreciation as a SEPARATE voucher.
       {"row": 2, "date": "YYYY-12-31", "amountGross": -DEP_AMOUNT, "amountGrossCurrency": -DEP_AMOUNT, "account": {"id": ACCUM_DEP_OR_ASSET_ACCOUNT_ID}, "vatType": {"id": 0}}
     ]
   }
-  Debit: expense account (6010). Credit: accumulated depreciation account (1209) or asset account if 1209 doesn't exist.
   CRITICAL: For year-end closing of year YYYY, the voucher date MUST be YYYY-12-31 (e.g. 2025-12-31 for year 2025). Do NOT use today's date!
 
 Step 4: Reverse prepaid expenses.
@@ -931,26 +937,36 @@ Step 4: Add each expense as a cost line.
   Create one cost line per expense (plane ticket, taxi, hotel, etc.).
   Match costCategory by EXACT description: "Fly" for plane, "Taxi" for taxi, "Hotell" for hotel, "Tog" for train, "Buss" for bus.
 
-Step 5: Add per diem compensation (if task mentions daily allowance/dietas/diett/indemnités journalières/Tagegeld).
-  GET /travelExpense/rateCategory — the response is auto-filtered to current-year domestic entries.
-  Pick the ONE matching your trip type by NAME:
-    - Multi-day trip with overnight stay: pick name containing "Overnatting over 12 timer"
-    - Day trip over 12 hours: pick name containing "Dagsreise over 12 timer"
-    - Day trip 9-12 hours: pick name containing "Dagsreise 9-12 timer"
-    - Day trip 5-9 hours: pick name containing "Dagsreise 5-9 timer"
-  IMPORTANT: Pick from the returned list — don't guess IDs. The system auto-selects the correct year.
-  POST /travelExpense/perDiemCompensation with:
-  {
-    "travelExpense": {"id": TE_ID},
-    "rateCategory": {"id": RATE_CAT_ID},
-    "location": "CITY",
-    "overnightAccommodation": "HOTEL" or "NONE",
-    "count": NUMBER_OF_DAYS
-  }
-  overnightAccommodation: use "HOTEL" for multi-day trips with hotel/overnight, "NONE" for day trips.
-  count: number of days (e.g. 3 for a 3-day trip).
-  IMPORTANT: The per diem rate is set by Norwegian tax rules, NOT by the task. If the task says "800 NOK/day",
-  just add the per diem normally — the system calculates the correct rate. Do NOT try to match the task amount exactly.
+Step 5: Add per diem / daily allowance (if task mentions diett/dietas/Tagegeld/indemnités journalières/per diem/dagssats).
+  CRITICAL DECISION: Does the task specify a CUSTOM daily rate (e.g. "dagssats 800 kr", "800 kr/dag", "daily rate 800")?
+  
+  A) CUSTOM daily rate specified → Post as a REGULAR COST, NOT via perDiemCompensation:
+     Calculate total: days × daily_rate (e.g. 4 days × 800 kr = 3200 kr)
+     POST /travelExpense/cost with:
+     {
+       "travelExpense": {"id": TE_ID},
+       "costCategory": {"id": DIETT_CATEGORY_ID},  — look for "Diett" or "Kost" in costCategory list; if not found use "Annen kostnad" or "Mat" or similar
+       "paymentType": {"id": PAYMENT_TYPE_ID},
+       "amountCurrencyIncVat": TOTAL_AMOUNT
+     }
+  
+  B) NO custom rate specified (just says "diett" or "per diem" without amount) → Use perDiemCompensation:
+     GET /travelExpense/rateCategory — the response is auto-filtered to current-year domestic entries.
+     Pick the ONE matching your trip type by NAME:
+       - Multi-day trip with overnight stay: pick name containing "Overnatting over 12 timer"
+       - Day trip over 12 hours: pick name containing "Dagsreise over 12 timer"
+       - Day trip 9-12 hours: pick name containing "Dagsreise 9-12 timer"
+       - Day trip 5-9 hours: pick name containing "Dagsreise 5-9 timer"
+     POST /travelExpense/perDiemCompensation with:
+     {
+       "travelExpense": {"id": TE_ID},
+       "rateCategory": {"id": RATE_CAT_ID},
+       "location": "CITY",
+       "overnightAccommodation": "HOTEL" or "NONE",
+       "count": NUMBER_OF_DAYS
+     }
+     overnightAccommodation: use "HOTEL" for multi-day trips with hotel/overnight, "NONE" for day trips.
+     count: number of days (e.g. 3 for a 3-day trip).
 
 Step 6: Call done().
 
@@ -1558,9 +1574,23 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
             accounts = acct_resp.get("values", [])
             if accounts:
                 closing_pre_info += f"\n\nPRE-SCANNED ACCOUNT DATA ({len(accounts)} accounts — use these IDs directly, do NOT re-fetch):"
-                key_accounts = [a for a in accounts if a.get("number") in (
-                    1200, 1209, 1700, 1710, 1720, 1750, 2400, 2900, 2930, 2960,
-                    5000, 6010, 6020, 6030, 6300, 6400, 8150, 8170, 1920)]
+                # Extract account numbers mentioned in the task (4-digit numbers)
+                import re as _re
+                task_account_nums = set()
+                for m in _re.findall(r'\bkonto\s+(\d{4})\b', prompt_lower):
+                    task_account_nums.add(int(m))
+                for m in _re.findall(r'\b(\d{4})\b', prompt):
+                    n = int(m)
+                    if 1000 <= n <= 9999 and n not in (2023, 2024, 2025, 2026):
+                        task_account_nums.add(n)
+                base_key_nums = {
+                    1200, 1209, 1210, 1220, 1230, 1240, 1250, 1260,
+                    1700, 1710, 1720, 1750, 1920,
+                    2400, 2500, 2900, 2920, 2930, 2960,
+                    5000, 6010, 6020, 6030, 6300, 6400,
+                    8150, 8170, 8300, 8700}
+                all_key_nums = base_key_nums | task_account_nums
+                key_accounts = [a for a in accounts if a.get("number") in all_key_nums]
                 for a in key_accounts:
                     closing_pre_info += f"\n  Account {a.get('number')}: id={a.get('id')} ({a.get('name', '')})"
                 if not key_accounts:
