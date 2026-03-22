@@ -1047,6 +1047,8 @@ Step 5: If POST /incomingInvoice returns 403 (no permission), fall back to POST 
   - MUST include both debit AND credit postings, otherwise error "credit posting missing".
   - Credit posting on account 2400 MUST include "supplier": {"id": SUPPLIER_ID}.
   - The debit posting should include "vatType": {"id": VAT_TYPE_ID} for the VAT to be calculated.
+  - If the task mentions a DEPARTMENT: add "department": {"id": DEPT_ID} on EACH posting.
+    Look up department first with GET /department?name=DEPT_NAME.
 
 Step 6: If POST /supplierInvoice fails with a validation error, READ the error message carefully and FIX the body. Do NOT fall through to /ledger/voucher unless /supplierInvoice has failed 3+ times with DIFFERENT errors.
   Common fixes:
@@ -1114,6 +1116,19 @@ Step 3: Create the voucher.
     3. On EACH posting, use: "freeAccountingDimension{dimensionIndex}": {"id": VALUE_ID}
        Example for dimensionIndex=1: "freeAccountingDimension1": {"id": 19496}
     DO NOT use "accountingDimensionValue" — the API rejects it!
+  - If the task mentions a DEPARTMENT (avdeling/department/Abteilung/departamento) for the expense:
+    1. GET /department to find the department by name. If it doesn't exist, create it with POST /department.
+    2. Add "department": {"id": DEPT_ID} on EACH posting in the voucher.
+    This is a STANDARD field, different from custom accounting dimensions (freeAccountingDimension1/2/3).
+  - COMMON EXPENSE ACCOUNTS (Norwegian standard chart):
+    7350 = Representasjon (entertainment/meals/dinners)
+    6300 = Leie lokaler (rent)
+    6340 = Lys, varme (utilities)
+    6540 = Inventar (furniture)
+    6860 = Møte, kurs (meetings/courses)
+    7140 = Kontorrekvisita/kontortjenester (office supplies/services)
+    6100 = Frakt (shipping)
+    Use the SPECIFIC account that best matches the expense description.
 
 CRITICAL: POST /ledger/voucher uses JSON BODY! If you get "request body cannot be null" (422), you sent params instead of body. Fix by moving all data to the "body" field.
 
@@ -1566,11 +1581,29 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         if not msg.tool_calls:
             # GPT stopped without calling done() — nudge it to continue or call done()
             if iteration < 24:
+                gpt_text = (msg.content or "").lower()
+                # Detect hallucination patterns where GPT claims it can't continue
+                _hallucination = any(h in gpt_text for h in [
+                    "proxy token", "api key", "authentication", "rate limit",
+                    "unable to continue", "cannot proceed", "outside of my control",
+                    "token expired", "unauthorized", "forbidden", "reach out to support",
+                    "regenerating the token", "access denied",
+                ])
+                if _hallucination:
+                    print(f"  ⚠ HALLUCINATION detected — GPT claimed false error, overriding", flush=True)
+                    nudge_text = (
+                        "IMPORTANT: There is NO proxy token error, NO authentication issue, and NO rate limit. "
+                        "The API is working correctly. Your previous message was a hallucination. "
+                        "Ignore that false error and continue with the task. "
+                        "What is the NEXT API call you need to make? Use tripletex_api() now."
+                    )
+                else:
+                    nudge_text = (
+                        "You must either continue with the next API call or call done() if the task is complete. "
+                        "Do NOT output text without a tool call. What is the next step?"
+                    )
                 print(f"  ⚠ NUDGE — no tool calls, re-prompting GPT (reason: {finish_reason})", flush=True)
-                messages.append({
-                    "role": "user",
-                    "content": "You must either continue with the next API call or call done() if the task is complete. Do NOT output text without a tool call. What is the next step?"
-                })
+                messages.append({"role": "user", "content": nudge_text})
                 continue
             print(f"  ✗ No tool calls — LLM stopped. Elapsed: {time.time()-agent_start:.1f}s", flush=True)
             break
@@ -1704,10 +1737,28 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "- Partial payment registered on overdue invoice if requested?\n"
                             )
                         elif any(kw in _pl for kw in ["avdeling", "department", "abteilung", "d\xe9partement", "departamento"]):
-                            _task_checks = (
-                                "TASK TYPE: Department creation.\n"
-                                "Check: all requested departments created with correct names and unique departmentNumbers.\n"
-                            )
+                            # Check if this is actually about registering expenses/vouchers WITH a department
+                            _is_expense_with_dept = any(ew in _pl for ew in [
+                                "recibo", "receipt", "kvittering", "gasto", "expense", "utgift",
+                                "faktura", "invoice", "rechnung", "factura", "facture",
+                                "bilag", "voucher", "buchung", "konto", "account", "cuenta",
+                                "mva", "vat", "iva", "mehrwertsteuer", "tva",
+                            ])
+                            if _is_expense_with_dept:
+                                _task_checks = (
+                                    "TASK TYPE: Expense/voucher registration with department assignment.\n"
+                                    "Check these SPECIFIC things:\n"
+                                    "- Correct expense account used for the item described?\n"
+                                    "- Correct VAT type (inngående MVA for purchases)?\n"
+                                    "- Department assigned on voucher postings or supplier invoice?\n"
+                                    "- Amounts correct (incl/excl VAT)?\n"
+                                    "- Supplier invoice amount=0 in response is NORMAL for Tripletex — do NOT flag it.\n"
+                                )
+                            else:
+                                _task_checks = (
+                                    "TASK TYPE: Department creation.\n"
+                                    "Check: all requested departments created with correct names and unique departmentNumbers.\n"
+                                )
                         elif any(kw in _pl for kw in ["25%", "15%", "0%", "different vat", "multiple vat", "ulike mva", "verschiedene"]):
                             _task_checks = (
                                 "TASK TYPE: Multi-VAT invoice.\n"
