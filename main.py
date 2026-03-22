@@ -1790,6 +1790,15 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     print(f"  [pre] Pre-scans completed in {_prescan_elapsed:.1f}s", flush=True)
     agent_start = time.time()  # Start timing AFTER pre-scans
 
+    # Build account number→id lookup from pre-scanned data (used by auto-fixes)
+    _acct_num_to_id = {}
+    _acct_id_to_num = {}
+    for _info_src in (closing_pre_info, accounts_pre_info):
+        for _m in re.finditer(r'Account (\d+): id=(\d+)', _info_src):
+            _anum, _aid = int(_m.group(1)), int(_m.group(2))
+            _acct_num_to_id[_anum] = _aid
+            _acct_id_to_num[_aid] = _anum
+
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     today_year = today[:4]
     system_prompt = SYSTEM_PROMPT_TEMPLATE.replace("{today}", today).replace("{today_year}", today_year)
@@ -1797,7 +1806,26 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         {"role": "system", "content": system_prompt},
     ]
 
-    user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates.{salary_pre_info}{ledger_pre_info}{closing_pre_info}{accounts_pre_info}"
+    # Adjust date reminder based on task type — year-end tasks need historical dates
+    _yearend_kws = ["årsoppgjør", "årsavslutning", "year-end", "yearend", "encerramento anual",
+                    "cierre anual", "jahresabschluss", "clôture annuelle", "forenkla årsoppgjer",
+                    "årsoppgjer", "year end closing"]
+    _is_yearend_task = any(kw in prompt_lower for kw in _yearend_kws)
+    _ye_year = str(int(today_year) - 1)  # Default: previous year
+    if _is_yearend_task:
+        # Extract the closing year from prompt (e.g. "year-end closing for 2025")
+        _ye_year_match = re.search(r'\b(20\d{2})\b', prompt)
+        _ye_year = _ye_year_match.group(1) if _ye_year_match else str(int(today_year) - 1)
+        _date_reminder = (f"\nToday's date: {today}\n"
+                         f"YEAR-END CLOSING: Use {_ye_year}-12-31 for ALL voucher dates (NOT today's date!). "
+                         f"The closing year is {_ye_year}.")
+    elif closing_pre_info:
+        # Monthly closing — use last day of the relevant month
+        _date_reminder = (f"\nToday's date: {today}\n"
+                         f"IMPORTANT: For closing vouchers, use the LAST DAY of the closing month as the voucher date (NOT today's date).")
+    else:
+        _date_reminder = f"\nToday's date: {today}\nIMPORTANT REMINDER: Use {today} for ALL dates. Never use 2023/2024/2025 dates."
+    user_content = f"Task prompt:\n{prompt}\n\nTripletex base_url: {base_url}{_date_reminder}{salary_pre_info}{ledger_pre_info}{closing_pre_info}{accounts_pre_info}"
     vision_parts = []  # For image vision inputs
     if files:
         user_content += f"\n\nAttached files ({len(files)}):"
@@ -2356,6 +2384,12 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     args["body"] = req_body
                     args["params"] = None
                     print(f"    │  [fix] PUT without body: moved params → body: {list(req_body.keys())}", flush=True)
+                # Auto-fix: timesheet entry — always set chargeable:true for billable hours
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/timesheet/entry"
+                        and req_body and isinstance(req_body, dict)):
+                    if not req_body.get("chargeable"):
+                        req_body["chargeable"] = True
+                        print(f"    │  [fix] timesheet entry: set chargeable=true", flush=True)
                 # Auto-fix: timesheet entry hourlyRate=0 → look up from project hourlyRates or project data
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/timesheet/entry"
                         and req_body and isinstance(req_body, dict)
@@ -2694,11 +2728,33 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         req_body.pop("department")
                         print(f"    │  [fix] removed department from employment POST", flush=True)
 
+                # Auto-fix: POST /ledger/voucher — block single-posting vouchers (always wrong)
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/ledger/voucher"
+                        and req_body):
+                    postings = req_body.get("postings", [])
+                    if len(postings) == 1:
+                        _single_amt = postings[0].get("amountGross") or postings[0].get("amount") or 0
+                        err_msg = (f"ERROR: Voucher has only 1 posting (amount={_single_amt}). "
+                                   f"Journal vouchers MUST have at least 2 postings that sum to zero! "
+                                   f"Add the contra posting: if this is a debit, add a credit on the other account, and vice versa.")
+                        print(f"    │  [fix] blocked single-posting voucher", flush=True)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps({"error": err_msg, "_status_code": 422}),
+                        })
+                        continue
                 # Auto-fix: POST /ledger/voucher — ensure each posting has 'date' and 'row'
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/ledger/voucher"
                         and req_body):
                     postings = req_body.get("postings", [])
                     voucher_date = req_body.get("date", today)
+                    # Year-end date correction: if this is a year-end task and GPT used today's date, fix it
+                    if _is_yearend_task and voucher_date == today:
+                        _ye_correct_date = f"{_ye_year}-12-31"
+                        req_body["date"] = _ye_correct_date
+                        voucher_date = _ye_correct_date
+                        print(f"    │  [fix] voucher date {today} → {_ye_correct_date} (year-end closing)", flush=True)
                     for idx, p in enumerate(postings):
                         if "date" not in p:
                             p["date"] = voucher_date
@@ -2721,6 +2777,18 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         if "vatType" not in p:
                             p["vatType"] = {"id": 0}
                             print(f"    │  [fix] voucher posting[{idx}]: added vatType={{id:0}}", flush=True)
+                        # Auto-fix: account 8080 → 8060 (agio gain) or 8160 (disagio loss)
+                        # Account 8080 is for financial instruments, NOT exchange rate diffs
+                        _p_acct = p.get("account", {})
+                        _p_acct_id = _p_acct.get("id") if isinstance(_p_acct, dict) else None
+                        if _p_acct_id and _acct_id_to_num.get(_p_acct_id) == 8080:
+                            _p_amt = float(p.get("amountGross", 0) or 0)
+                            # Credit (negative) on gain account → 8060; Debit (positive) on loss → 8160
+                            _target_num = 8060 if _p_amt < 0 else 8160
+                            _target_id = _acct_num_to_id.get(_target_num)
+                            if _target_id:
+                                p["account"] = {"id": _target_id}
+                                print(f"    │  [fix] voucher posting[{idx}]: account 8080 → {_target_num} (id={_target_id})", flush=True)
                         # Auto-fix: accountingDimensionValue → freeAccountingDimension{1,2,3}
                         # The Tripletex API does NOT accept "accountingDimensionValue" on postings.
                         # The correct fields are freeAccountingDimension1/2/3, matching the dimension's dimensionIndex.
@@ -3216,6 +3284,39 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         }
                         sc = 400
                         print(f"    │  [warn] supplier invoice created with amount=0 — auto-deleted and returning error", flush=True)
+
+                # Post-call check: voucher with all zero amounts means postings failed
+                if (args["method"] == "POST"
+                        and args["path"].rstrip("/") == "/ledger/voucher"
+                        and sc < 400):
+                    _v_val = result.get("value", result)
+                    _v_postings = _v_val.get("postings", [])
+                    if _v_postings:
+                        _all_zero = all(
+                            (p.get("amount", 0) == 0 and p.get("amountCurrency", 0) == 0)
+                            for p in _v_postings
+                        )
+                        if _all_zero:
+                            # Delete the broken voucher
+                            _v_id = _v_val.get("id")
+                            if _v_id:
+                                try:
+                                    _del_v = call_tripletex(base_url, auth, "DELETE", f"/ledger/voucher/{_v_id}")
+                                    print(f"    │  [auto-fix] auto-deleted zero-amount voucher {_v_id}", flush=True)
+                                except Exception:
+                                    pass
+                            result = {
+                                "_status_code": 400,
+                                "error": (
+                                    "Voucher was created but ALL posting amounts are 0 — this means the postings failed! "
+                                    "The broken voucher has been deleted. RETRY with correct field names: "
+                                    "use amountGross (NOT amount) and amountGrossCurrency (NOT amountCurrency). "
+                                    "Example: {\"row\":1,\"date\":\"...\",\"amountGross\":1000,\"amountGrossCurrency\":1000,"
+                                    "\"account\":{\"id\":...},\"vatType\":{\"id\":0}}"
+                                ),
+                            }
+                            sc = 400
+                            print(f"    │  [warn] voucher created with all zero amounts — auto-deleted", flush=True)
 
                 if sc >= 400:
                     # Capture validation error details
