@@ -1828,6 +1828,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         user_msg_content = user_content
     messages.append({"role": "user", "content": user_msg_content})
     total_tokens = 0
+    _consecutive_nudges = 0  # Track text-only responses to escalate forcing tool calls
 
     # Compute iteration time budget: 230s minus any pre-scan time, but at least 160s
     # Cloud Run timeout = 300s; reserve margin for response + log upload
@@ -1887,12 +1888,17 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
             diag["errors"].append(f"Time limit reached at {_pre_gpt_elapsed:.0f}s (pre-GPT)")
             break
 
+        # After 2+ consecutive text-only nudges, force GPT to make a tool call
+        _tool_choice = "required" if _consecutive_nudges >= 2 else "auto"
+        if _tool_choice == "required":
+            print(f"  ⚡ Forcing tool_choice='required' after {_consecutive_nudges} consecutive nudges", flush=True)
+
         try:
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages,
                 tools=TOOLS,
-                tool_choice="auto",
+                tool_choice=_tool_choice,
                 temperature=0,
                 parallel_tool_calls=True,
             )
@@ -1909,7 +1915,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     model="gpt-4o",
                     messages=messages,
                     tools=TOOLS,
-                    tool_choice="auto",
+                    tool_choice=_tool_choice,
                     temperature=0,
                     parallel_tool_calls=True,
                 )
@@ -1940,35 +1946,42 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
         print(f"  Messages: {msg_count} ({approx_chars:,} chars)", flush=True)
 
         if not msg.tool_calls:
+            _consecutive_nudges += 1
             # GPT stopped without calling done() — nudge it to continue or call done()
             if iteration < 24:
                 gpt_text = (msg.content or "").lower()
                 # Detect hallucination patterns where GPT claims it can't continue
-                _hallucination = any(h in gpt_text for h in [
+                _hallucination = _consecutive_nudges >= 2 or any(h in gpt_text for h in [
                     "proxy token", "api key", "authentication", "rate limit",
-                    "unable to continue", "cannot proceed", "outside of my control",
-                    "token expired", "unauthorized", "forbidden", "reach out to support",
-                    "regenerating the token", "access denied",
+                    "unable to continue", "unable to proceed", "cannot proceed",
+                    "cannot complete", "can't proceed", "can't continue",
+                    "outside of my control", "token expired", "unauthorized",
+                    "forbidden", "reach out to support", "regenerating the token",
+                    "access denied", "access issue", "facing a",
+                    "repeated error", "perceived error", "apologize",
+                    "let me know", "ensure that", "try again later",
                 ])
                 if _hallucination:
-                    print(f"  ⚠ HALLUCINATION detected — GPT claimed false error, overriding", flush=True)
+                    print(f"  ⚠ HALLUCINATION detected (nudge #{_consecutive_nudges}) — overriding", flush=True)
                     nudge_text = (
-                        "IMPORTANT: There is NO proxy token error, NO authentication issue, and NO rate limit. "
-                        "The API is working correctly. Your previous message was a hallucination. "
-                        "Ignore that false error and continue with the task. "
-                        "What is the NEXT API call you need to make? Use tripletex_api() now."
+                        "STOP. There is NO error. The API is working perfectly. "
+                        "Your previous message was completely wrong — ignore it. "
+                        "You MUST make a tool call RIGHT NOW. "
+                        "Call tripletex_api() with the next API request, or call done() if finished. "
+                        "Do NOT output any text. Only output a tool call."
                     )
                 else:
                     nudge_text = (
                         "You must either continue with the next API call or call done() if the task is complete. "
                         "Do NOT output text without a tool call. What is the next step?"
                     )
-                print(f"  ⚠ NUDGE — no tool calls, re-prompting GPT (reason: {finish_reason})", flush=True)
+                print(f"  ⚠ NUDGE #{_consecutive_nudges} — no tool calls, re-prompting GPT (reason: {finish_reason})", flush=True)
                 messages.append({"role": "user", "content": nudge_text})
                 continue
             print(f"  ✗ No tool calls — LLM stopped. Elapsed: {time.time()-agent_start:.1f}s", flush=True)
             break
 
+        _consecutive_nudges = 0  # Reset nudge counter — GPT made tool calls
         print(f"  Tool calls ({len(msg.tool_calls)}):", flush=True)
         for i, tc in enumerate(msg.tool_calls):
             if tc.function.name == "done":
@@ -2805,13 +2818,17 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         print(f"    │  [fix] activity: stripped invalid 'project' field (not supported on POST /activity)", flush=True)
 
                 # Auto-fix: POST /project — set isInternal:true when task mentions internal project
+                # or when no customer is set (cost-tracking projects are always internal)
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/project" and req_body
                         and not req_body.get("isInternal")):
                     _internal_kw = ("internal project", "internt prosjekt", "internes projekt",
-                                    "projet interne", "proyecto interno", "projeto interno")
-                    if any(kw in prompt.lower() for kw in _internal_kw):
+                                    "projet interne", "proyecto interno", "projeto interno",
+                                    "internprosjekt", "intern prosjekt")
+                    _has_no_customer = not req_body.get("customer")
+                    if any(kw in prompt.lower() for kw in _internal_kw) or _has_no_customer:
                         req_body["isInternal"] = True
-                        print(f"    │  [fix] POST /project: set isInternal=true (task mentions internal project)", flush=True)
+                        _reason = "no customer" if _has_no_customer else "task mentions internal project"
+                        print(f"    │  [fix] POST /project: set isInternal=true ({_reason})", flush=True)
 
                 # Auto-fix: GET /project — strip project(*) from fields param
                 if (args["method"] == "GET" and re.match(r'^/project(/\d+)?$', args["path"].rstrip("/"))):
