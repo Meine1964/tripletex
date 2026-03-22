@@ -1348,6 +1348,55 @@ rules:
   # Already covered by get-voucher-dates, but ensure wide range hint
   # (rule get-voucher-dates above handles this)
 
+  # ── Voucher postings: reject 'amount' field (read-only) ──────
+  - id: voucher-posting-reject-amount
+    description: "Voucher postings use amountGross, not amount"
+    when:
+      method: POST
+      path: /ledger/voucher
+    reject_fields:
+      - postings.amount
+    message: >
+      Voucher postings use 'amountGross' and 'amountGrossCurrency',
+      NOT 'amount' or 'amountCurrency'. The 'amount' field is read-only.
+
+  # ── Supplier invoice: require voucher.date ────────────────────
+  - id: supplier-invoice-voucher-date
+    description: "Supplier invoice voucher needs date"
+    when:
+      method: POST
+      path: /supplierInvoice
+    require_fields:
+      - voucher.date
+    message: >
+      POST /supplierInvoice requires voucher.date (YYYY-MM-DD). Set it
+      to the same date as invoiceDate.
+
+  # ── Block POST /payment (wrong endpoint) ──────────────────────
+  - id: block-post-payment
+    description: "Block wrong endpoint POST /payment"
+    when:
+      method: POST
+      path: /payment
+    require_fields:
+      - _wrong_endpoint
+    message: >
+      POST /payment does not exist. To register invoice payments, use
+      PUT /invoice/{id}/:payment with params paymentDate, paymentTypeId,
+      paidAmount, paidAmountCurrency.
+
+  # ── Block GET /account (wrong path) ───────────────────────────
+  - id: block-get-account
+    description: "Block wrong endpoint /account — correct is /ledger/account"
+    when:
+      method: GET
+      path: /account
+    require_fields:
+      - _wrong_endpoint
+    message: >
+      Wrong endpoint! /account does not exist. Use GET /ledger/account
+      to list ledger accounts. Filter by number: ?number=1920
+
   # ── Block PUT /supplierInvoice/{id} (not valid) ──────────────
   - id: supplier-invoice-put-id-blocked
     description: "PUT /supplierInvoice/{id} is not valid"
