@@ -1210,6 +1210,26 @@ CRITICAL EFFICIENCY: Use GET /ledger/voucher?dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-
 Do NOT fetch individual vouchers or postings separately — that wastes iterations. The "fields=*" parameter embeds the postings array.
 Once you have all vouchers+postings, analyze them in your reasoning to find errors, then create correction vouchers.
 
+CORRECTION VOUCHER RULES — how to construct each correction:
+1. WRONG ACCOUNT (posted to X, should be Y, amount A):
+   - Credit wrong account X: amountGross=-A (removes amount from wrong account)
+   - Debit correct account Y: amountGross=+A (adds amount to correct account)
+2. DUPLICATE VOUCHER (extra posting on account X, amount A):
+   - Look at the original voucher's postings to find the OFFSET account Z
+   - Credit expense account X: amountGross=-A (reverses the duplicate debit)
+   - Debit offset account Z: amountGross=+A (reverses the duplicate credit)
+   - The correction is the EXACT REVERSE of the original duplicate voucher's postings
+3. MISSING VAT LINE (expense account X, net amount A, VAT on account V):
+   - VAT amount = net_amount × VAT_rate (typically 25% = 0.25)
+   - Debit VAT account V: amountGross=+VAT_amount (adds the missing VAT)
+   - Credit expense account X: amountGross=-VAT_amount (reduces gross to net on expense)
+4. WRONG AMOUNT (posted A on account X, should be B):
+   - If A > B (overstated): Credit account X: amountGross=-(A-B), Debit offset: amountGross=+(A-B)
+   - If A < B (understated): Debit account X: amountGross=+(B-A), Credit offset: amountGross=-(B-A)
+   - Look at original voucher to find the correct offset account
+
+IMPORTANT: Each correction voucher must have postings that sum to ZERO (balanced). Use vatType: {id: 0} for all correction postings.
+
 LEDGER VOUCHER / JOURNAL ENTRY WORKFLOW (for "voucher"/"bilag"/"Buchung"/"écriture comptable"/"asiento" tasks):
 The task asks you to create a journal entry / voucher with specific postings.
 
@@ -1617,6 +1637,11 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     if any(kw in prompt_lower for kw in ledger_correction_keywords):
         print("  [pre] Ledger correction task detected — fetching all vouchers with postings...", flush=True)
         try:
+            # Fetch accounts FIRST for ID→number resolution
+            acct_resp = call_tripletex(base_url, auth, "GET", "/ledger/account",
+                                       params={"fields": "id,number,name"})
+            accounts = acct_resp.get("values", [])
+            acct_lookup = {a.get("id"): a for a in accounts}  # id → {id, number, name}
             # Fetch all vouchers for Jan-Feb with embedded postings (fields=* embeds them)
             v_resp = call_tripletex(base_url, auth, "GET", "/ledger/voucher",
                                     params={"dateFrom": "2026-01-01", "dateTo": "2026-02-28", "fields": "*", "count": 100})
@@ -1629,15 +1654,15 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     ledger_pre_info += f"\n  Voucher #{v.get('number')} (id={vid}, date={v.get('date')}, desc=\"{v.get('description', '')}\")"
                     for p in v_postings:
                         acct = p.get("account", {})
+                        acct_id = acct.get("id")
+                        acct_info = acct_lookup.get(acct_id, {})
+                        acct_num = acct_info.get("number", "?")
+                        acct_name = acct_info.get("name", "?")
                         ledger_pre_info += (
-                            f"\n    Posting: account={acct.get('number', '?')} ({acct.get('name', '?')}), "
+                            f"\n    Posting: account={acct_num} (id={acct_id}, {acct_name}), "
                             f"amount={p.get('amount', 0)}, amountGross={p.get('amountGross', 0)}, "
                             f"description=\"{p.get('description', '')}\""
                         )
-                # Also fetch account IDs for common accounts
-                acct_resp = call_tripletex(base_url, auth, "GET", "/ledger/account",
-                                           params={"fields": "id,number,name"})
-                accounts = acct_resp.get("values", [])
                 if accounts:
                     ledger_pre_info += f"\n\n  ACCOUNT LOOKUP (use these IDs):"
                     for a in accounts:
@@ -3293,23 +3318,19 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                             base_body["shiftDurationHours"] = float(m.group(1).replace(",", "."))
                                         else:
                                             base_body["shiftDurationHours"] = 35.5
-                                # Handle maritime errors — if required but not in existing, keep employmentType as-is
+                                # Handle maritime errors — if required, add maritime data
                                 # maritime_err already computed above
                                 if maritime_err:
                                     if existing_val.get("maritimeEmployment"):
                                         base_body["maritimeEmployment"] = existing_val["maritimeEmployment"]
                                     else:
-                                        # Don't change employmentType — it triggers maritime validation
-                                        existing_et = existing_val.get("employmentType")
-                                        if isinstance(existing_et, str):
-                                            existing_et = _em.get("employmentType", {}).get(existing_et, 0)
-                                        base_body["employmentType"] = existing_et or 0
-                                        # Also keep workingHoursScheme as-is to avoid side effects
-                                        existing_whs = existing_val.get("workingHoursScheme")
-                                        if isinstance(existing_whs, str):
-                                            existing_whs = _em.get("workingHoursScheme", {}).get(existing_whs, 0)
-                                        base_body["workingHoursScheme"] = existing_whs or 0
-                                        print(f"    │  [auto-fix] no maritime data — keeping employmentType={base_body['employmentType']}", flush=True)
+                                        # Add default maritime fields to satisfy validation
+                                        base_body["maritimeEmployment"] = {
+                                            "shipType": 1,
+                                            "shipRegister": "NOR",
+                                            "tradeArea": "DOMESTIC"
+                                        }
+                                        print(f"    │  [auto-fix] maritime fields required — adding defaults", flush=True)
                                 # Use PUT since we found existing details
                                 print(f"    │  [auto-fix] retrying PUT with merged base body", flush=True)
                                 retry_result = call_tripletex(base_url, auth, "PUT",
@@ -3327,6 +3348,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     for k in ("percentageOfFullTimeEquivalent", "annualSalary", "shiftDurationHours"):
                                         if k in base_body:
                                             minimal[k] = base_body[k]
+                                    if maritime_err and "maritimeEmployment" in base_body:
+                                        minimal["maritimeEmployment"] = base_body["maritimeEmployment"]
                                     retry2 = call_tripletex(base_url, auth, "PUT",
                                         f"/employee/employment/details/{details_id}",
                                         params=args.get("params"), body=minimal)
@@ -3385,6 +3408,31 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                             put_body[fld] = default
                                             print(f"    │  [auto-fix] POST→PUT: {fld}=0 → {default}", flush=True)
                                     put_body.setdefault("shiftDurationHours", existing_val.get("shiftDurationHours", 0) or 0)
+                                    # Handle maritime and shiftDurationHours from original POST error
+                                    _orig_vmsgs = result.get("validationMessages") or []
+                                    _maritime_err = any("maritime" in (m.get("field") or "").lower() for m in _orig_vmsgs)
+                                    if _maritime_err:
+                                        if not put_body.get("maritimeEmployment"):
+                                            put_body["maritimeEmployment"] = {
+                                                "shipType": 1,
+                                                "shipRegister": "NOR",
+                                                "tradeArea": "DOMESTIC"
+                                            }
+                                            print(f"    │  [auto-fix] POST→PUT: adding maritime defaults", flush=True)
+                                    for _vmsg in _orig_vmsgs:
+                                        if "shiftDurationHours" in (_vmsg.get("field") or ""):
+                                            _m = re.search(r"([\d,]+)\s+til\s+([\d,]+)", _vmsg.get("message", ""))
+                                            if _m:
+                                                put_body["shiftDurationHours"] = float(_m.group(1).replace(",", "."))
+                                            else:
+                                                put_body["shiftDurationHours"] = 35.5
+                                    # Check for remunerationType error and try string value
+                                    _remun_err = any("remunerationType" == (m.get("field") or "") for m in _orig_vmsgs)
+                                    if _remun_err:
+                                        _int_to_str_remun = {0: "NOT_CHOSEN", 1: "HOURLY_PAY", 2: "MONTHLY_PAY", 3: "COMMISSIONED", 4: "FEE", 5: "PIECEWORK_PAY"}
+                                        _rv = put_body.get("remunerationType", 2)
+                                        put_body["remunerationType"] = _int_to_str_remun.get(_rv, "MONTHLY_PAY")
+                                        print(f"    │  [auto-fix] POST→PUT: using string remunerationType={put_body['remunerationType']}", flush=True)
                                     retry_result = call_tripletex(base_url, auth, "PUT",
                                         f"/employee/employment/details/{det_id}", body=put_body)
                                     retry_sc = retry_result.get("_status_code", 200)
@@ -3393,7 +3441,32 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                         sc = retry_sc
                                         print(f"    │  [auto-fix] POST→PUT switch succeeded!", flush=True)
                                     else:
-                                        print(f"    │  [auto-fix] POST→PUT switch failed: {retry_sc}", flush=True)
+                                        # Second attempt: try with ALL string enums + maritime
+                                        print(f"    │  [auto-fix] POST→PUT switch failed ({retry_sc}), retrying with string enums", flush=True)
+                                        _int_to_str_all = {
+                                            "employmentType": {0: "NOT_CHOSEN", 1: "ORDINARY", 2: "MARITIME", 3: "FREELANCE"},
+                                            "employmentForm": {0: "NOT_CHOSEN", 1: "TEMPORARY", 2: "PERMANENT"},
+                                            "remunerationType": {0: "NOT_CHOSEN", 1: "HOURLY_PAY", 2: "MONTHLY_PAY", 3: "COMMISSIONED", 4: "FEE", 5: "PIECEWORK_PAY"},
+                                            "workingHoursScheme": {0: "NOT_CHOSEN", 1: "NON_SHIFT", 2: "ROUND_THE_CLOCK", 3: "SHIFT_365", 4: "OFFSHORE_336", 5: "CONTINUOUS", 6: "OTHER_SHIFT"},
+                                        }
+                                        for _ef, _mapping in _int_to_str_all.items():
+                                            if isinstance(put_body.get(_ef), int):
+                                                put_body[_ef] = _mapping.get(put_body[_ef], "NOT_CHOSEN")
+                                        if not put_body.get("maritimeEmployment"):
+                                            put_body["maritimeEmployment"] = {
+                                                "shipType": 1,
+                                                "shipRegister": "NOR",
+                                                "tradeArea": "DOMESTIC"
+                                            }
+                                        retry2 = call_tripletex(base_url, auth, "PUT",
+                                            f"/employee/employment/details/{det_id}", body=put_body)
+                                        retry2_sc = retry2.get("_status_code", 200)
+                                        if retry2_sc < 400:
+                                            result = retry2
+                                            sc = retry2_sc
+                                            print(f"    │  [auto-fix] POST→PUT string enum retry succeeded!", flush=True)
+                                        else:
+                                            print(f"    │  [auto-fix] POST→PUT string enum retry also failed: {retry2_sc}", flush=True)
                                 else:
                                     # No existing details — retry POST with minimal fields + no employmentType
                                     print(f"    │  [auto-fix] no existing details, retrying POST minimal", flush=True)
