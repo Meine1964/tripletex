@@ -2361,6 +2361,14 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 if _proj_val.get("isFixedPrice") and _proj_val.get("fixedprice", 0) > 0:
                                     req_body["hourlyRate"] = 1
                                     print(f"    │  [fix] timesheet hourlyRate=0 → fixed-price project, set nominal rate=1", flush=True)
+                                else:
+                                    # Last resort: try to extract hourly rate from task prompt
+                                    _rate_match = re.search(r'(\d+(?:[.,]\d+)?)\s*(?:NOK|kr|SEK|EUR|USD)?[/\s]*(?:h|time|t|hora|heure|Stunde|tím|ora)\b', prompt, re.IGNORECASE)
+                                    if _rate_match:
+                                        _extracted = float(_rate_match.group(1).replace(",", "."))
+                                        if _extracted > 0:
+                                            req_body["hourlyRate"] = _extracted
+                                            print(f"    │  [fix] timesheet hourlyRate=0 → extracted {_extracted} from task prompt", flush=True)
                         except Exception as e:
                             print(f"    │  [fix] could not fetch project hourlyRate: {e}", flush=True)
                 # Auto-fix: reject POST without body (except for action endpoints)
@@ -3042,23 +3050,32 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             if isinstance(_sent, int) and _sent > 0:
                                 _not_chosen_fields.append(_ef)
                     if _not_chosen_fields:
-                        print(f"    │  [auto-fix] employment details PUT succeeded but {_not_chosen_fields} still NOT_CHOSEN — retrying", flush=True)
-                        # Build retry body from API response + our desired enums
+                        print(f"    │  [auto-fix] employment details PUT succeeded but {_not_chosen_fields} still NOT_CHOSEN — retrying with strings", flush=True)
+                        # Map integer values to string enum names for retry
+                        _int_to_str = {
+                            "employmentType": {0: "NOT_CHOSEN", 1: "ORDINARY", 2: "MARITIME", 3: "FREELANCE"},
+                            "employmentForm": {0: "NOT_CHOSEN", 1: "TEMPORARY", 2: "PERMANENT"},
+                            "remunerationType": {0: "NOT_CHOSEN", 1: "HOURLY_PAY", 2: "MONTHLY_PAY", 3: "COMMISSIONED", 4: "FEE"},
+                            "workingHoursScheme": {0: "NOT_CHOSEN", 1: "NON_SHIFT", 2: "ROUND_THE_CLOCK", 3: "SHIFT_365"},
+                        }
+                        # Build retry body from API response + our desired enums as STRINGS
                         _retry = {"id": _rv.get("id"), "version": _rv.get("version", 0),
                                   "employment": _rv.get("employment") or req_body.get("employment"),
                                   "date": _rv.get("date")}
+                        _defaults = {"employmentType": 1, "employmentForm": 2, "remunerationType": 2, "workingHoursScheme": 1}
                         for _ef in _enum_names:
                             _sent = req_body.get(_ef)
                             if isinstance(_sent, int) and _sent > 0:
-                                _retry[_ef] = _sent
+                                _str_val = _int_to_str.get(_ef, {}).get(_sent, str(_sent))
+                                _retry[_ef] = _str_val
                             else:
-                                # Use safe default
-                                _defaults = {"employmentType": 1, "employmentForm": 2, "remunerationType": 2, "workingHoursScheme": 1}
-                                _retry[_ef] = _defaults.get(_ef, 1)
-                        # Preserve existing shiftDurationHours
-                        _ex_sh = _rv.get("shiftDurationHours", 0)
-                        if _ex_sh:
-                            _retry["shiftDurationHours"] = _ex_sh
+                                _def_int = _defaults.get(_ef, 1)
+                                _retry[_ef] = _int_to_str.get(_ef, {}).get(_def_int, str(_def_int))
+                        # Preserve salary/percentage/shift from existing
+                        for _pf in ("percentageOfFullTimeEquivalent", "annualSalary", "shiftDurationHours"):
+                            _pv = _rv.get(_pf) or req_body.get(_pf)
+                            if _pv:
+                                _retry[_pf] = _pv
                         _det_path = args["path"]
                         _retry_r = call_tripletex(base_url, auth, "PUT", _det_path, body=_retry)
                         _retry_sc = _retry_r.get("_status_code", 200)
@@ -3076,6 +3093,49 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
                 call_info = f"{args['method']} {args['path']} -> {sc}"
                 diag["api_calls"].append(call_info)
+
+                # Post-call check: timesheet entry hourlyRate=0 — try setting project hourly rates
+                if (args["method"] == "POST"
+                        and args["path"].rstrip("/") == "/timesheet/entry"
+                        and sc < 400 and req_body):
+                    _ts_val = result.get("value", result)
+                    _ts_rate = _ts_val.get("hourlyRate", -1)
+                    _wanted_rate = req_body.get("hourlyRate", 0)
+                    if _ts_rate == 0 and _wanted_rate and _wanted_rate > 0:
+                        # API ignored hourlyRate — try setting via project hourlyRates
+                        _ts_proj = (_ts_val.get("project") or {}).get("id") or (req_body.get("project") or {}).get("id")
+                        _ts_emp = (_ts_val.get("employee") or {}).get("id") or (req_body.get("employee") or {}).get("id")
+                        _ts_act = (_ts_val.get("activity") or {}).get("id") or (req_body.get("activity") or {}).get("id")
+                        if _ts_proj and _ts_emp and _ts_act:
+                            try:
+                                _phr_body = {
+                                    "project": {"id": _ts_proj},
+                                    "employee": {"id": _ts_emp},
+                                    "activity": {"id": _ts_act},
+                                    "hourlyRate": _wanted_rate,
+                                }
+                                _phr_resp = call_tripletex(base_url, auth, "POST", "/project/hourlyRates", body=_phr_body)
+                                _phr_sc = _phr_resp.get("_status_code", 200)
+                                if _phr_sc < 400:
+                                    print(f"    │  [auto-fix] timesheet hourlyRate=0 → set project hourlyRate={_wanted_rate} via /project/hourlyRates", flush=True)
+                                    # Also try PUT on the timesheet entry to update hourlyRate
+                                    _ts_id = _ts_val.get("id")
+                                    if _ts_id:
+                                        _ts_put = {"id": _ts_id, "version": _ts_val.get("version", 0),
+                                                   "project": {"id": _ts_proj}, "activity": {"id": _ts_act},
+                                                   "employee": {"id": _ts_emp}, "date": _ts_val.get("date"),
+                                                   "hours": _ts_val.get("hours"), "hourlyRate": _wanted_rate,
+                                                   "chargeable": True}
+                                        _ts_put_r = call_tripletex(base_url, auth, "PUT", f"/timesheet/entry/{_ts_id}", body=_ts_put)
+                                        if _ts_put_r.get("_status_code", 200) < 400:
+                                            _new_rate = _ts_put_r.get("value", {}).get("hourlyRate", 0)
+                                            print(f"    │  [auto-fix] timesheet PUT updated hourlyRate → {_new_rate}", flush=True)
+                                            if _new_rate and _new_rate > 0:
+                                                result = _ts_put_r
+                                else:
+                                    print(f"    │  [auto-fix] POST /project/hourlyRates failed: {_phr_sc}", flush=True)
+                            except Exception as e:
+                                print(f"    │  [auto-fix] timesheet hourlyRate fix error: {e}", flush=True)
 
                 # Post-call check: supplier invoice with amount=0 means postings failed
                 if (args["method"] == "POST"
