@@ -1854,6 +1854,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
     messages.append({"role": "user", "content": user_msg_content})
     total_tokens = 0
     _consecutive_nudges = 0  # Track text-only responses to escalate forcing tool calls
+    _consecutive_401s = 0  # Track consecutive 401 errors to detect auth failure
 
     # Compute iteration time budget: 230s minus any pre-scan time, but at least 160s
     # Cloud Run timeout = 300s; reserve margin for response + log upload
@@ -3038,6 +3039,29 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     body=req_body,
                 )
                 sc = result.get("_status_code", 200)
+
+                # Track consecutive 401 errors — bail out after 3
+                if sc == 401:
+                    _consecutive_401s += 1
+                    if _consecutive_401s >= 3:
+                        result_str = json.dumps({
+                            "error": "AUTHENTICATION FAILED (3 consecutive 401 errors). "
+                                     "The API session may have expired. "
+                                     "Do NOT retry API calls — proceed directly: "
+                                     "use common defaults (vatType id=3 for 25% MVA, id=0 for no VAT) "
+                                     "and create the required resources in ONE call. "
+                                     "If you lack required IDs, call done() with what you have.",
+                            "_status_code": 401
+                        }, ensure_ascii=False)
+                        print(f"    │  [auth] 3 consecutive 401s — injecting bail-out message", flush=True)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": result_str,
+                        })
+                        continue
+                else:
+                    _consecutive_401s = 0  # Reset on any non-401 response
 
                 # Auto-fix: version conflict on PUT — re-fetch version and retry once
                 if args["method"] == "PUT" and sc in (409, 422) and req_body and isinstance(req_body, dict):
