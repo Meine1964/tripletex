@@ -521,9 +521,16 @@ Step 3: Post EACH depreciation as a SEPARATE voucher.
     ]
   }
   Debit: expense account (6010). Credit: accumulated depreciation account (1209) or asset account if 1209 doesn't exist.
+  CRITICAL: For year-end closing of year YYYY, the voucher date MUST be YYYY-12-31 (e.g. 2025-12-31 for year 2025). Do NOT use today's date!
 
 Step 4: Reverse prepaid expenses.
-  POST /ledger/voucher: Debit expense account (e.g. 6010), Credit prepaid account (e.g. 1700).
+  Match the prepaid account to its correct EXPENSE account:
+  - 1700 (Forskuddsbetalt leie) → 6300 (Leie lokale) = rent expense
+  - 1710 (Forskuddsbetalt rentekostnad) → 8150 or 8170 (Rentekostnad) = interest expense
+  - 1720 (Forskuddsbetalt forsikring) → 6400 (Forsikring) = insurance expense
+  - 1750 (Forskuddsbetalt annet) → the relevant expense account
+  WRONG: using 6010 or 5000 for prepaid rent reversal! 6010 is depreciation, 5000 is salary — NOT rent!
+  POST /ledger/voucher: Debit EXPENSE account (positive), Credit PREPAID account (negative).
 
 Step 5: Calculate and post tax provision (if requested).
   Look up accounts 8700 (tax expense) and 2920 (tax payable).
@@ -861,22 +868,23 @@ Step 4: Add each expense as a cost line.
   Match costCategory by EXACT description: "Fly" for plane, "Taxi" for taxi, "Hotell" for hotel, "Tog" for train, "Buss" for bus.
 
 Step 5: Add per diem compensation (if task mentions daily allowance/dietas/diett).
-  GET /travelExpense/rateCategory — returns ~459 categories across many years. You MUST filter correctly!
-  CRITICAL: The rateCategory MUST match the year of the travel expense date!
-    - Each category has fromDate and toDate (e.g. "2026-01-01" to "2026-12-31").
-    - You MUST pick a category where today's date falls between fromDate and toDate.
-    - For a 2026 travel expense: find categories with fromDate="2026-..." or toDate="2026-...".
-    - For multi-day trips with overnight: look for name containing "Overnatting over 12 timer - innland" with matching year.
-    - For day trips: look for name containing "Dagsreise" with matching year.
-    - WRONG: using an old category from 2008! Check the dates!
+  GET /travelExpense/rateCategory — returns many categories. Pick the ONE matching your trip type:
+    - Multi-day trip with overnight stay: pick name = "Overnatting over 12 timer - innland"
+    - Day trip over 12 hours: pick name = "Dagsreise over 12 timer - innland"
+    - Day trip 9-12 hours: pick name = "Dagsreise 9-12 timer - innland"
+    - Day trip 5-9 hours: pick name = "Dagsreise 5-9 timer - innland"
+    - Foreign travel: pick name containing "utland" matching the trip duration.
+  Just search by name — the system auto-applies the correct rate for your travel dates.
   POST /travelExpense/perDiemCompensation with:
   {
     "travelExpense": {"id": TE_ID},
     "rateCategory": {"id": RATE_CAT_ID},
     "location": "CITY",
-    "overnightAccommodation": "NONE",
+    "overnightAccommodation": "HOTEL" or "NONE",
     "count": NUMBER_OF_DAYS
   }
+  overnightAccommodation: use "HOTEL" for trips with hotel/overnight, "NONE" for day trips.
+  count: number of days (e.g. 3 for a 3-day trip).
   If the API-calculated rate differs from the task amount, that's OK — Norwegian tax rules set the rate.
 
 Step 6: Call done().
@@ -1713,6 +1721,19 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 "- Invoice NOT sent unless task explicitly says send/sende/enviar/envoyer?\n"
                                 "  'Fakturer'/'fakturér' means CREATE invoice, NOT send it!\n"
                             )
+                        elif any(kw in _pl for kw in ["reiseregning", "travel expense", "nota de gastos de viaje", "note de frais", "reisekosten", "despesas de viagem", "reisekostenabrechnung"]):
+                            _task_checks = (
+                                "TASK TYPE: Travel expense."
+                                "Check these SPECIFIC things:\n"
+                                "- Employee created/found with correct name?\n"
+                                "- Travel expense created with correct destination and travel dates?\n"
+                                "- Cost lines added for each expense (plane, taxi, hotel, etc.) with correct amounts?\n"
+                                "- Per diem compensation added if task mentions daily allowance/diett/dietas?\n"
+                                "  Per diem rateCategory MUST match the travel year (2026 date range, NOT old 2008 category)!\n"
+                                "- Payment type set (typically 'Privat utlegg')?\n"
+                                "- Travel expense amount > 0 after adding costs?\n"
+                                "- Do NOT require 'completing' or 'delivering' the travel expense — just creating it with costs is enough.\n"
+                            )
                         elif any(kw in _pl for kw in ["integrasjon", "onboarding", "tilbudsbrev", "offer letter", "carta de oferta", "funcionario", "integracao"]):
                             _task_checks = (
                                 "TASK TYPE: Employee onboarding / offer letter.\n"
@@ -2057,7 +2078,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             current_cat = req_body.get("rateCategory", {}).get("id")
                             # Find matching category: same type of name, date range covering travel year
                             # Determine if looking for overnight or day trip
-                            is_overnight = any(kw in str(req_body.get("overnightAccommodation", "")).upper() for kw in ["NONE", "HOTEL"]) or req_body.get("count", 1) > 1
+                            accom = str(req_body.get("overnightAccommodation", "")).upper()
+                            is_overnight = ("HOTEL" in accom or "BOARDING_HOUSE" in accom or "FRIENDS_OR_FAMILY" in accom) or (accom == "NONE" and req_body.get("count", 1) > 1)
                             target_names = ["Overnatting over 12 timer - innland"] if is_overnight else ["Dagsreise over 12 timer - innland", "Dagsreise 6-12 timer - innland"]
                             best_cat = None
                             for rc in all_cats:
@@ -2868,6 +2890,29 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         else:
                             print(f"    │  [auto-fix] employee rename failed: {rename_sc}", flush=True)
 
+                # Auto-filter: rateCategory responses — only keep common useful types
+                if (isinstance(result, dict) and "values" in result
+                        and isinstance(result["values"], list)
+                        and args["path"].rstrip("/").endswith("/rateCategory")
+                        and len(result["values"]) > 50):
+                    _orig_count = len(result["values"])
+                    # Keep only PER_DIEM and ACCOMMODATION_ALLOWANCE types (skip MILEAGE etc.)
+                    _useful_types = {"PER_DIEM", "ACCOMMODATION_ALLOWANCE"}
+                    _filtered = [v for v in result["values"]
+                                 if isinstance(v, dict) and v.get("type") in _useful_types]
+                    # Further filter: keep only "innland" (domestic) categories
+                    _domestic = [v for v in _filtered if "innland" in v.get("name", "").lower()]
+                    if _domestic:
+                        result["values"] = _domestic
+                        result["fullResultSize"] = len(_domestic)
+                        result["_note"] = f"Filtered from {_orig_count} to {len(_domestic)} domestic per-diem/accommodation entries. Pick by name matching trip type."
+                        print(f"    \u2502  [filter] rateCategory: {_orig_count} \u2192 {len(_domestic)} domestic entries", flush=True)
+                    elif _filtered:
+                        result["values"] = _filtered
+                        result["fullResultSize"] = len(_filtered)
+                        result["_note"] = f"Filtered from {_orig_count} to {len(_filtered)} per-diem/accommodation entries."
+                        print(f"    \u2502  [filter] rateCategory: {_orig_count} \u2192 {len(_filtered)} entries", flush=True)
+
                 result_str = json.dumps(result, ensure_ascii=False)
                 # Smart trimming: for large list responses, condense values to key fields
                 if isinstance(result, dict) and "values" in result and isinstance(result["values"], list):
@@ -2875,7 +2920,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     if len(vals) > 30:
                         _keep = {"id", "version", "name", "number", "displayName", "numberPretty",
                                  "firstName", "lastName", "startDate", "date", "amount", "type",
-                                 "description", "code", "nameNO", "invoiceNumber", "isBankAccount"}
+                                 "description", "code", "nameNO", "invoiceNumber", "isBankAccount",
+                                 "fromDate", "toDate"}
                         condensed = []
                         for v in vals:
                             if isinstance(v, dict):
