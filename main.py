@@ -2135,7 +2135,26 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                 print(f"    │  [fix] could not fetch version for PUT: {e}", flush=True)
                 # Auto-fix: supplier invoice voucher postings — comprehensive fixes
                 if args["method"] == "POST" and args["path"].rstrip("/") == "/supplierInvoice" and req_body:
-                    voucher = req_body.get("voucher", {})
+                    # Auto-move top-level postings into voucher.postings
+                    if "postings" in req_body and "voucher" not in req_body:
+                        req_body["voucher"] = {"postings": req_body.pop("postings"),
+                                               "date": req_body.get("invoiceDate", today),
+                                               "description": req_body.get("invoiceNumber", "Supplier invoice")}
+                        print(f"    │  [fix] supplierInvoice: moved top-level postings into voucher", flush=True)
+                    elif "postings" in req_body and isinstance(req_body.get("voucher"), dict):
+                        if not req_body["voucher"].get("postings"):
+                            req_body["voucher"]["postings"] = req_body.pop("postings")
+                            print(f"    │  [fix] supplierInvoice: moved top-level postings into voucher.postings", flush=True)
+                    voucher = req_body.get("voucher") or {}
+                    if not voucher:
+                        req_body["voucher"] = {"date": req_body.get("invoiceDate", today),
+                                               "description": req_body.get("invoiceNumber", "Supplier invoice"),
+                                               "postings": []}
+                        voucher = req_body["voucher"]
+                        print(f"    │  [fix] supplierInvoice: created missing voucher object", flush=True)
+                    if not voucher.get("date"):
+                        voucher["date"] = req_body.get("invoiceDate") or today
+                        print(f"    │  [fix] supplierInvoice: set voucher.date={voucher['date']}", flush=True)
                     postings = voucher.get("postings", [])
                     si_date = voucher.get("date") or req_body.get("invoiceDate") or today
                     si_supplier_id = (req_body.get("supplier") or {}).get("id")
@@ -2354,19 +2373,20 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 # Auto-fix: POST /employee/employment/details — ensure employment ref + defaults
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment/details"
                         and req_body):
-                    # If missing employmentType defaults (use INTEGER values — API rejects strings)
-                    if "employmentType" not in req_body:
+                    # If missing or zero employmentType defaults (use INTEGER values — API rejects strings)
+                    # GPT sometimes sends 0 (NOT_CHOSEN) — override with correct defaults
+                    if not req_body.get("employmentType"):
                         req_body["employmentType"] = 1  # ORDINARY
-                        print(f"    │  [fix] employment details: added employmentType=1 (ORDINARY)", flush=True)
-                    if "employmentForm" not in req_body:
+                        print(f"    │  [fix] employment details: set employmentType=1 (ORDINARY)", flush=True)
+                    if not req_body.get("employmentForm"):
                         req_body["employmentForm"] = 2  # PERMANENT
-                        print(f"    │  [fix] employment details: added employmentForm=2 (PERMANENT)", flush=True)
-                    if "remunerationType" not in req_body:
+                        print(f"    │  [fix] employment details: set employmentForm=2 (PERMANENT)", flush=True)
+                    if not req_body.get("remunerationType"):
                         req_body["remunerationType"] = 2  # MONTHLY_PAY
-                        print(f"    │  [fix] employment details: added remunerationType=2 (MONTHLY_PAY)", flush=True)
-                    if "workingHoursScheme" not in req_body:
+                        print(f"    │  [fix] employment details: set remunerationType=2 (MONTHLY_PAY)", flush=True)
+                    if not req_body.get("workingHoursScheme"):
                         req_body["workingHoursScheme"] = 1  # NON_SHIFT
-                        print(f"    │  [fix] employment details: added workingHoursScheme=1 (NON_SHIFT)", flush=True)
+                        print(f"    │  [fix] employment details: set workingHoursScheme=1 (NON_SHIFT)", flush=True)
 
                 # Auto-fix: employment details enum fields — convert strings to integers
                 # Tripletex API requires integer values for these enums, but GET returns strings
@@ -2616,16 +2636,28 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     si_amount = si_val.get("amount", -1)
                     si_amount_ex = si_val.get("amountExcludingVat", -1)
                     if si_amount == 0 and si_amount_ex == 0:
-                        result["_warning"] = (
-                            "CRITICAL WARNING: Supplier invoice was created but amount=0! "
-                            "The voucher postings were EMPTY or malformed — the invoice is BROKEN. "
-                            "DO NOT create a separate correction voucher — that does NOT fix the invoice! "
-                            "Instead: 1) Delete this broken invoice if possible, 2) Recreate it with "
-                            "POST /supplierInvoice including BOTH debit and credit postings in voucher.postings. "
-                            "Make sure each posting has: amountGross, amountGrossCurrency, date, row, account.id. "
-                            "Debit posting: positive amountGross + vatType. Credit posting: negative amountGross + supplier.id."
-                        )
-                        print(f"    │  [warn] supplier invoice created with amount=0 — postings likely missing/broken", flush=True)
+                        # Auto-delete the broken invoice and return error to force retry
+                        si_id = si_val.get("id")
+                        if si_id:
+                            del_resp = call_tripletex(base_url, auth, "DELETE", f"/supplierInvoice/{si_id}")
+                            del_sc = del_resp.get("_status_code", 200)
+                            if del_sc < 400:
+                                print(f"    │  [auto-fix] auto-deleted broken supplier invoice {si_id} (amount=0)", flush=True)
+                            else:
+                                print(f"    │  [auto-fix] could not delete broken supplier invoice {si_id}: {del_sc}", flush=True)
+                        result = {
+                            "_status_code": 400,
+                            "error": (
+                                "Supplier invoice was created with amount=0 (postings missing/malformed) — "
+                                "it has been auto-deleted. RETRY POST /supplierInvoice with BOTH postings "
+                                "inside voucher.postings: "
+                                "[{row:1, date:DATE, amountGross:AMOUNT, amountGrossCurrency:AMOUNT, account:{id:EXPENSE_ACCT}, vatType:{id:1}}, "
+                                "{row:2, date:DATE, amountGross:-AMOUNT, amountGrossCurrency:-AMOUNT, account:{id:2400_ACCT}, supplier:{id:SUPPLIER_ID}}]. "
+                                "Make sure amountGross is the FULL amount including VAT."
+                            ),
+                        }
+                        sc = 400
+                        print(f"    │  [warn] supplier invoice created with amount=0 — auto-deleted and returning error", flush=True)
 
                 if sc >= 400:
                     # Capture validation error details
@@ -2834,6 +2866,16 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     for fld in ("percentageOfFullTimeEquivalent", "annualSalary"):
                                         if fld in req_body:
                                             put_body[fld] = req_body[fld]
+                                    # Also overlay enum fields from agent if non-zero
+                                    for fld in ("employmentType", "employmentForm", "remunerationType", "workingHoursScheme"):
+                                        if fld in req_body and isinstance(req_body[fld], int) and req_body[fld] > 0:
+                                            put_body[fld] = req_body[fld]
+                                    # If any enum is still 0 (NOT_CHOSEN), set safe defaults
+                                    _enum_defaults = {"employmentType": 1, "employmentForm": 2, "remunerationType": 2, "workingHoursScheme": 1}
+                                    for fld, default in _enum_defaults.items():
+                                        if not put_body.get(fld):
+                                            put_body[fld] = default
+                                            print(f"    │  [auto-fix] POST→PUT: {fld}=0 → {default}", flush=True)
                                     put_body["shiftDurationHours"] = 35.5
                                     retry_result = call_tripletex(base_url, auth, "PUT",
                                         f"/employee/employment/details/{det_id}", body=put_body)
@@ -2953,11 +2995,22 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     # All employees already renamed — reuse one but warn
                                     available = emp_list
                                     print(f"    │  [auto-fix] WARNING: all {len(emp_list)} employees already renamed, reusing", flush=True)
-                                # Pick last non-admin employee (or last employee)
-                                target_emp = available[-1]
-                                for emp in available:
-                                    if emp.get("firstName", "").lower() != "admin":
-                                        target_emp = emp
+                                # Prefer matching employee by email (prevents name-email swap)
+                                req_email = (req_body.get("email") or "").lower().strip()
+                                target_emp = None
+                                if req_email:
+                                    for emp in available:
+                                        emp_email = (emp.get("email") or "").lower().strip()
+                                        if emp_email == req_email:
+                                            target_emp = emp
+                                            print(f"    │  [auto-fix] matched employee {emp['id']} by email {req_email}", flush=True)
+                                            break
+                                if not target_emp:
+                                    # Fall back to last non-admin employee
+                                    target_emp = available[-1]
+                                    for emp in available:
+                                        if emp.get("firstName", "").lower() != "admin":
+                                            target_emp = emp
                                 emp_id = target_emp["id"]
                                 emp_ver = target_emp.get("version", 0)
                                 put_body = {
