@@ -1576,27 +1576,33 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             salary_pre_info += f"\n    NO employment record — you MUST create one (use companyId={emp_company_id} as division.id)"
                     except Exception:
                         salary_pre_info += "\n    [could not check employment]"
-                # Also get company ID for division
-                try:
-                    co_resp = call_tripletex(base_url, auth, "GET", "/company/>withLoginAccess")
-                    companies = co_resp.get("values", [])
-                    if companies:
-                        salary_pre_info += f"\n  Company id={companies[0].get('id')} (use as division.id for employment)"
-                    elif employees:
-                        # Fallback: use employee's companyId
-                        fallback_cid = employees[0].get("companyId")
-                        if fallback_cid:
-                            salary_pre_info += f"\n  Company (from employee): id={fallback_cid} (use as division.id for employment)"
-                except Exception:
-                    pass
-                # List existing departments
-                try:
-                    dept_resp = call_tripletex(base_url, auth, "GET", "/department")
-                    depts = dept_resp.get("values", [])
-                    if depts:
-                        salary_pre_info += f"\n  Existing departments: " + ", ".join(f"{d.get('name')} (id={d.get('id')})" for d in depts)
-                except Exception:
-                    pass
+                # Fetch company + department in parallel (both independent of employee data)
+                from concurrent.futures import ThreadPoolExecutor
+                def _fetch_company():
+                    try:
+                        co_resp = call_tripletex(base_url, auth, "GET", "/company/>withLoginAccess")
+                        return co_resp.get("values", [])
+                    except Exception:
+                        return []
+                def _fetch_depts():
+                    try:
+                        dept_resp = call_tripletex(base_url, auth, "GET", "/department")
+                        return dept_resp.get("values", [])
+                    except Exception:
+                        return []
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    co_future = pool.submit(_fetch_company)
+                    dept_future = pool.submit(_fetch_depts)
+                    companies = co_future.result()
+                    depts = dept_future.result()
+                if companies:
+                    salary_pre_info += f"\n  Company id={companies[0].get('id')} (use as division.id for employment)"
+                elif employees:
+                    fallback_cid = employees[0].get("companyId")
+                    if fallback_cid:
+                        salary_pre_info += f"\n  Company (from employee): id={fallback_cid} (use as division.id for employment)"
+                if depts:
+                    salary_pre_info += f"\n  Existing departments: " + ", ".join(f"{d.get('name')} (id={d.get('id')})" for d in depts)
                 salary_pre_info += "\n  IMPORTANT: Do NOT try DELETE on employment records — it returns 405! Use existing employment."
                 print(f"  [pre] Pre-scan complete: {len(employees)} employees found", flush=True)
         except Exception as e:
@@ -1887,7 +1893,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 messages=messages,
                 tools=TOOLS,
                 tool_choice="auto",
-                parallel_tool_calls=False,
+                temperature=0,
+                parallel_tool_calls=True,
             )
         except Exception as e:
             print(f"  ⚠ OpenAI error: {e} — retrying in 2s...", flush=True)
@@ -1903,7 +1910,8 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     messages=messages,
                     tools=TOOLS,
                     tool_choice="auto",
-                    parallel_tool_calls=False,
+                    temperature=0,
+                    parallel_tool_calls=True,
                 )
             except Exception as e2:
                 print(f"  ✗ OpenAI retry failed: {e2}", flush=True)
