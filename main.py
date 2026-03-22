@@ -1990,7 +1990,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 args_preview = tc.function.arguments[:800]
                 print(f"    [{i+1}] {tc.function.name}({args_preview})", flush=True)
 
-        for tool_call in msg.tool_calls:
+        # Reorder: process done() LAST so parallel API calls execute first
+        _ordered_calls = sorted(msg.tool_calls, key=lambda tc: (tc.function.name == "done"))
+
+        for tool_call in _ordered_calls:
             # Time check inside tool loop
             _tool_elapsed = time.time() - agent_start
             if _tool_elapsed > _iter_budget and tool_call.function.name != "done":
@@ -2003,7 +2006,16 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 continue
 
             name = tool_call.function.name
-            args = json.loads(tool_call.function.arguments)
+            try:
+                args = json.loads(tool_call.function.arguments)
+            except (json.JSONDecodeError, TypeError) as e:
+                print(f"    │  ⚠ Malformed JSON in tool call '{name}': {e}", flush=True)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps({"error": f"Your tool call had invalid JSON arguments: {e}. Please re-send with valid JSON.", "_status_code": 400}),
+                })
+                continue
 
             if name == "done":
                 elapsed = time.time() - agent_start
@@ -3559,7 +3571,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                         _keep = {"id", "version", "name", "number", "displayName", "numberPretty",
                                  "firstName", "lastName", "startDate", "date", "amount", "type",
                                  "description", "code", "nameNO", "invoiceNumber", "isBankAccount",
-                                 "fromDate", "toDate"}
+                                 "fromDate", "toDate", "amountGross", "amountGrossCurrency",
+                                 "amountOutstanding", "amountCurrencyOutstanding", "invoiceDueDate",
+                                 "customer", "account", "isInternal", "isClosed", "isInactive",
+                                 "priceExcludingVatCurrency", "vatType", "percentage"}
                         condensed = []
                         for v in vals:
                             if isinstance(v, dict):
