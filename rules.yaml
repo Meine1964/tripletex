@@ -1633,3 +1633,60 @@ rules:
       lastName: string
     message: >
       'lastName' must be a string (e.g. "Nordmann"), not a number or object.
+
+  # ── PUT /employee: require essential body fields ──────────────
+  - id: employee-put-require-id
+    description: "PUT /employee needs id in body"
+    when:
+      method: PUT
+      path_pattern: "^/employee/\\d+$"
+    require_fields:
+      - id
+    message: >
+      PUT /employee requires 'id' in the body. First GET the employee to
+      obtain their id and version, then PUT with all required fields.
+
+  - id: employee-put-require-version
+    description: "PUT /employee needs version in body"
+    when:
+      method: PUT
+      path_pattern: "^/employee/\\d+$"
+    require_fields:
+      - version
+    message: >
+      PUT /employee requires 'version' in the body. GET the employee first
+      to get the current version number. Include it to avoid conflicts.
+
+  - id: employee-put-require-firstName
+    description: "PUT /employee needs firstName in body"
+    when:
+      method: PUT
+      path_pattern: "^/employee/\\d+$"
+    require_fields:
+      - firstName
+    message: >
+      PUT /employee requires 'firstName' in the body. Include the employee's
+      first name (the one from the task, NOT the generic sandbox name).
+
+  - id: employee-put-require-lastName
+    description: "PUT /employee needs lastName in body"
+    when:
+      method: PUT
+      path_pattern: "^/employee/\\d+$"
+    require_fields:
+      - lastName
+    message: >
+      PUT /employee requires 'lastName' in the body. Include the employee's
+      last name (the one from the task, NOT the generic sandbox name).
+
+  - id: employee-put-require-dateOfBirth
+    description: "PUT /employee needs dateOfBirth in body"
+    when:
+      method: PUT
+      path_pattern: "^/employee/\\d+$"
+    require_fields:
+      - dateOfBirth
+    message: >
+      PUT /employee requires 'dateOfBirth' (YYYY-MM-DD). If the task specifies
+      a birth date, use that exact date. Otherwise use "1990-01-01". Without
+      dateOfBirth, subsequent employment creation will fail.
