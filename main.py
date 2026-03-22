@@ -2296,6 +2296,23 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     args["body"] = req_body
                     args["params"] = None
                     print(f"    │  [fix] PUT without body: moved params → body: {list(req_body.keys())}", flush=True)
+                # Auto-fix: timesheet entry hourlyRate=0 → look up from project hourlyRates
+                if (args["method"] == "POST" and args["path"].rstrip("/") == "/timesheet/entry"
+                        and req_body and isinstance(req_body, dict)
+                        and (not req_body.get("hourlyRate") or req_body.get("hourlyRate") == 0)):
+                    _proj_id = (req_body.get("project") or {}).get("id")
+                    if _proj_id:
+                        try:
+                            _hr_resp = call_tripletex(base_url, auth, "GET", "/project/hourlyRates",
+                                                      params={"projectId": str(_proj_id)})
+                            _hr_vals = _hr_resp.get("values", [])
+                            if _hr_vals:
+                                _rate = _hr_vals[0].get("hourlyRate", 0)
+                                if _rate and _rate > 0:
+                                    req_body["hourlyRate"] = _rate
+                                    print(f"    │  [fix] timesheet hourlyRate=0 → fetched {_rate} from project hourlyRates", flush=True)
+                        except Exception as e:
+                            print(f"    │  [fix] could not fetch project hourlyRate: {e}", flush=True)
                 # Auto-fix: reject POST without body (except for action endpoints)
                 if args["method"] == "POST" and not req_body and '/:' not in args["path"]:
                     err_msg = (f"ERROR: POST {args['path']} requires a JSON body but you sent none. "
@@ -2930,7 +2947,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 if args["method"] == "PUT" and sc in (409, 422) and req_body and isinstance(req_body, dict):
                     val_msgs = result.get("validationMessages") or []
                     err_text = json.dumps(result, ensure_ascii=False).lower()
-                    is_version_err = ("version" in err_text and ("conflict" in err_text or "utdatert" in err_text or "optimistic" in err_text or "stale" in err_text)) or any("version" in (m.get("field", "") or "").lower() for m in val_msgs)
+                    is_version_err = ("revision" in err_text or ("version" in err_text and ("conflict" in err_text or "utdatert" in err_text or "optimistic" in err_text or "stale" in err_text))) or any("version" in (m.get("field", "") or "").lower() for m in val_msgs)
                     if is_version_err:
                         path_segments = args["path"].rstrip("/").split("/")
                         if path_segments and path_segments[-1].isdigit():

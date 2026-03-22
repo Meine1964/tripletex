@@ -516,10 +516,13 @@ rules:
       path: /timesheet/entry
     require_fields:
       - hourlyRate
+    reject_field_values:
+      hourlyRate: 0
     message: >
-      POST /timesheet/entry requires 'hourlyRate'! Without it, hours are
-      registered with rate=0 and the project invoice will have the wrong
-      total. Use the hourly rate from the task description.
+      POST /timesheet/entry requires 'hourlyRate' with a non-zero value!
+      Without it, hours are registered with rate=0 and the project invoice
+      will have the wrong total. First GET /project/hourlyRates?projectId=ID
+      to find the correct rate, then set hourlyRate to that value.
 
   # ── Product ───────────────────────────────────────────────────
   - id: product-required
@@ -1463,19 +1466,6 @@ rules:
       Do NOT include maritimeEmployment in employment details. It is only
       valid when employmentType=2 (MARITIME). The system auto-handles
       maritime fields if needed.
-
-  # ── Timesheet: hourlyRate required ───────────────────────────
-  - id: timesheet-hourlyrate-required
-    description: "POST timesheet entry should include hourlyRate"
-    when:
-      method: POST
-      path: /timesheet/entry
-    require_fields:
-      - hourlyRate
-    message: >
-      POST /timesheet/entry should include hourlyRate (the rate from the
-      task). Without hourlyRate, the hours will be registered at 0 rate
-      and the invoice amount will be wrong.
 
   # ════════════════════════════════════════════════════════════════
   #  NEW RULES — deduced from batch failure pattern analysis
