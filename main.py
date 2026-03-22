@@ -2150,6 +2150,12 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                             print(f"    │  [fix] employment details: {wrong_name} → percentageOfFullTimeEquivalent", flush=True)
                         elif wrong_name in req_body:
                             req_body.pop(wrong_name)
+                    # Fix wrong field name: occupationalCategory → occupationCode
+                    if "occupationalCategory" in req_body and "occupationCode" not in req_body:
+                        req_body["occupationCode"] = req_body.pop("occupationalCategory")
+                        print(f"    │  [fix] employment details: occupationalCategory → occupationCode", flush=True)
+                    elif "occupationalCategory" in req_body:
+                        req_body.pop("occupationalCategory")
 
                     _enum_maps = {
                         "employmentType": {"NOT_CHOSEN": 0, "ORDINARY": 1, "MARITIME": 2, "FREELANCE": 3, "CREATIVE": 4, "OFFICER": 5},
@@ -2308,6 +2314,15 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     diag["errors"].append(f"RULE_VIOLATION: {args['method']} {args['path']}")
                     continue
 
+                # Guard: occupation code list — force name filter to avoid 7000+ item dump
+                if (args["method"] == "GET"
+                        and "/employee/employment/occupationCode" in args["path"]
+                        and not (args.get("params") or {}).get("name")):
+                    print(f"    │  [guard] occupationCode without ?name= filter — adding count=20", flush=True)
+                    if not args.get("params"):
+                        args["params"] = {}
+                    args["params"]["count"] = "20"
+
                 result = call_tripletex(
                     base_url, auth,
                     method=args["method"],
@@ -2319,7 +2334,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
 
                 # Auto-fix: version conflict on PUT — re-fetch version and retry once
                 if args["method"] == "PUT" and sc in (409, 422) and req_body and isinstance(req_body, dict):
-                    val_msgs = result.get("validationMessages", [])
+                    val_msgs = result.get("validationMessages") or []
                     err_text = json.dumps(result, ensure_ascii=False).lower()
                     is_version_err = ("version" in err_text and ("conflict" in err_text or "utdatert" in err_text or "optimistic" in err_text or "stale" in err_text)) or any("version" in (m.get("field", "") or "").lower() for m in val_msgs)
                     if is_version_err:
@@ -2343,7 +2358,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 diag["api_calls"].append(call_info)
                 if sc >= 400:
                     # Capture validation error details
-                    val_msgs = result.get("validationMessages", [])
+                    val_msgs = result.get("validationMessages") or []
                     msg_text = "; ".join(m.get("message", "") for m in val_msgs) if val_msgs else ""
                     err_detail = f"{call_info}: {msg_text}" if msg_text else call_info
                     diag["errors"].append(err_detail)
@@ -2374,7 +2389,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                     # Auto-fix: employment overlap — GET existing employment and guide GPT
                     if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
                             and sc >= 400):
-                        overlap_msg = "; ".join(m.get("message", "") for m in result.get("validationMessages", []))
+                        overlap_msg = "; ".join(m.get("message", "") for m in (result.get("validationMessages") or []))
                         emp_id_from_body = (req_body or {}).get("employee", {}).get("id")
                         if ("overlappende" in overlap_msg.lower() or "overlap" in overlap_msg.lower()) and emp_id_from_body:
                             print(f"    │  [auto-fix] employment overlap detected — fetching existing employment for employee {emp_id_from_body}", flush=True)
@@ -2440,10 +2455,10 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                     "occupationCode", "date")
                                 # Check if the date itself caused the error — if so, keep existing date
                                 date_err = any("date" == (m.get("field") or "").lower()
-                                               for m in result.get("validationMessages", []))
+                                               for m in (result.get("validationMessages") or []))
                                 # Check for maritime errors early — needed for enum overlay decision
                                 maritime_err = any("maritime" in (m.get("field") or "").lower()
-                                                   for m in result.get("validationMessages", []))
+                                                   for m in (result.get("validationMessages") or []))
                                 for k in _agent_fields:
                                     if k in req_body and req_body[k] is not None:
                                         if k == "date" and date_err:
@@ -2458,7 +2473,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                                             continue
                                         base_body[k] = req_body[k]
                                 # Parse validation messages for shiftDurationHours constraint
-                                for msg in result.get("validationMessages", []):
+                                for msg in (result.get("validationMessages") or []):
                                     msg_field = (msg.get("field") or "")
                                     msg_text = (msg.get("message") or "")
                                     if "shiftDurationHours" in msg_field:
@@ -2583,7 +2598,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/project"
                         and sc == 422 and result.get("validationMessages")):
                     pm_error = any("prosjektleder" in (m.get("message", "") or "").lower()
-                                    for m in result.get("validationMessages", []))
+                                    for m in (result.get("validationMessages") or []))
                     if pm_error:
                         pm_id = (req_body or {}).get("projectManager", {}).get("id")
                         if pm_id:
@@ -2599,7 +2614,7 @@ def run_agent(prompt: str, files: list, base_url: str, auth: tuple) -> dict:
                 if (args["method"] == "POST" and args["path"].rstrip("/") == "/employee/employment"
                         and sc == 422 and req_body):
                     div_error = any("division" in (m.get("field", "") or "")
-                                    for m in result.get("validationMessages", []))
+                                    for m in (result.get("validationMessages") or []))
                     if div_error and req_body.get("division"):
                         # Retry without division — some sandboxes don't support it
                         print(f"    │  [auto-fix] division.id rejected — retrying without division", flush=True)
